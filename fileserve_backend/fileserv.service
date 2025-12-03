@@ -1,0 +1,35 @@
+[Unit]
+Description=FileServ - File Server with Authentication
+After=network.target
+
+[Service]
+Type=simple
+User=fileserv
+Group=fileserv
+WorkingDirectory=/opt/fileserv
+ExecStart=/opt/fileserv/fileserv
+Restart=on-failure
+RestartSec=5s
+
+# Environment variables
+Environment="PORT=8080"
+Environment="DATA_DIR=/var/lib/fileserv/data"
+Environment="JWT_SECRET=change-me-in-production"
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/fileserv
+
+# Graceful shutdown
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

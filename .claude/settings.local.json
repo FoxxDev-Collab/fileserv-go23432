@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go mod tidy:*)",
+      "Bash(/home/foxx-fs/.local/go/bin/go mod:*)",
+      "Bash(/home/foxx-fs/.local/go/bin/go build:*)",
+      "Bash(npx shadcn@latest add:*)",
+      "Bash(npm run build:*)",
+      "Bash(tree:*)",
+      "Bash(timeout:*)",
+      "Bash(go version:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)",
+      "Bash(go build:*)",
+      "Bash(go mod vendor:*)",
+      "Bash(GOFLAGS=\"-mod=mod\" go build:*)",
+      "Bash(/home/foxx-fs/.local/go/bin/go list:*)",
+      "Bash(npm install:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

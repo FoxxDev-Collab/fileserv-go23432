@@ -1,0 +1,143 @@
+FileServ Backend - Complete File Structure
+===========================================
+
+fileserve_backend/
+├── main.go                      # Entry point with graceful shutdown
+├── go.mod                       # Go module definition
+├── go.sum                       # Go module checksums
+│
+├── Documentation
+│   ├── README.md                # Project overview and quick start
+│   ├── INSTALL.md               # Detailed installation instructions
+│   ├── API.md                   # API documentation with examples
+│   ├── ARCHITECTURE.md          # Architecture and design details
+│   └── STRUCTURE.txt            # This file
+│
+├── Configuration
+│   ├── .env.example             # Environment variable template
+│   ├── .gitignore               # Git ignore patterns
+│   ├── fileserv.service         # Systemd service configuration
+│   └── Makefile                 # Build and deployment tasks
+│
+├── Scripts
+│   ├── setup.sh                 # Automated setup and build script
+│   └── validate.sh              # Project structure validation
+│
+├── Source Code
+│   ├── config/
+│   │   └── config.go            # Configuration from environment vars
+│   │
+│   ├── handlers/
+│   │   ├── auth.go              # Login, logout, token refresh
+│   │   ├── users.go             # User CRUD (admin only)
+│   │   ├── files.go             # File operations (list, upload, etc.)
+│   │   ├── admin.go             # Admin dashboard and permissions
+│   │   └── static.go            # Static file serving
+│   │
+│   ├── middleware/
+│   │   ├── auth.go              # JWT validation middleware
+│   │   ├── logging.go           # Request logging
+│   │   └── cors.go              # CORS handling
+│   │
+│   ├── models/
+│   │   ├── user.go              # User model with password hashing
+│   │   ├── permission.go        # Permission model and checking
+│   │   └── session.go           # Session/token model
+│   │
+│   ├── storage/
+│   │   └── store.go             # JSON-based storage with thread safety
+│   │
+│   └── internal/
+│       ├── auth/
+│       │   └── jwt.go           # JWT token generation/validation
+│       └── fileops/
+│           └── fileops.go       # Safe file operations
+│
+├── Frontend (Embedded)
+│   └── static/
+│       └── .gitkeep             # Placeholder for frontend build
+│
+└── Dependencies
+    └── vendor/                  # Vendored Go dependencies
+
+Key Features:
+-------------
+✓ Single binary with embedded static files
+✓ Vendored dependencies (go mod vendor)
+✓ Systemd service support with graceful shutdown
+✓ JWT authentication for login/session management
+✓ User management (admin can create/edit/delete users)
+✓ File permissions system (per-user or per-group)
+✓ Path traversal attack prevention
+✓ JSON-based storage (no database required)
+✓ CORS support for frontend integration
+✓ Request logging middleware
+
+API Endpoints:
+--------------
+Authentication:
+  POST   /api/auth/login        # Login with credentials
+  POST   /api/auth/logout       # Logout/invalidate token
+  POST   /api/auth/refresh      # Refresh JWT token
+  GET    /api/auth/me           # Get current user info
+
+Admin:
+  GET    /api/admin/stats       # Dashboard statistics
+  GET    /api/users             # List users
+  POST   /api/users             # Create user
+  PUT    /api/users/:id         # Update user
+  DELETE /api/users/:id         # Delete user
+  GET    /api/permissions       # List permissions
+  POST   /api/permissions       # Create permission
+  DELETE /api/permissions/:id   # Delete permission
+
+Files:
+  GET    /api/files             # List files (query: path)
+  GET    /api/files/*path       # Download file or list directory
+  POST   /api/files/*path       # Upload file
+  DELETE /api/files/*path       # Delete file/directory
+  PUT    /api/files/*path       # Rename/move file
+  POST   /api/folders/*path     # Create directory
+
+Static:
+  GET    /*                     # Serve frontend files
+
+Build Instructions:
+-------------------
+1. Install dependencies:
+   go mod download && go mod tidy
+
+2. Vendor dependencies:
+   go mod vendor
+
+3. Build binary:
+   go build -ldflags="-s -w" -o fileserv
+
+4. Or use Make:
+   make vendor && make build
+
+5. Or use setup script:
+   ./setup.sh
+
+Run Instructions:
+-----------------
+Development:
+  PORT=8080 DATA_DIR=./data JWT_SECRET=secret ./fileserv
+
+Production (Systemd):
+  sudo systemctl start fileserv
+
+Authentication:
+---------------
+Uses system (PAM) authentication.
+Only root and wheel group users have admin access.
+
+Security Notes:
+---------------
+• Change JWT_SECRET in production
+• Use HTTPS (reverse proxy)
+• Restrict file permissions on DATA_DIR
+• All passwords hashed with bcrypt
+• Path traversal attacks prevented
+• JWT tokens for authentication
+• Role-based access control (root/wheel = admin)
