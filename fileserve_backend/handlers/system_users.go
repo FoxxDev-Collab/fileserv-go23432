@@ -54,6 +54,22 @@ type UpdateSystemUserRequest struct {
 	Locked   *bool    `json:"locked,omitempty"`
 }
 
+// CreateSystemGroupRequest represents a request to create a new group
+type CreateSystemGroupRequest struct {
+	Name string `json:"name"`
+	GID  int    `json:"gid,omitempty"` // Optional, auto-assigned if not provided
+}
+
+// UpdateSystemGroupRequest represents a request to update a group
+type UpdateSystemGroupRequest struct {
+	NewName string `json:"new_name,omitempty"`
+}
+
+// GroupMemberRequest represents a request to add/remove a group member
+type GroupMemberRequest struct {
+	Username string `json:"username"`
+}
+
 // validUsername checks if a username is valid
 func validUsername(username string) bool {
 	// Linux username rules: starts with letter or underscore, followed by letters, digits, underscores, or hyphens
