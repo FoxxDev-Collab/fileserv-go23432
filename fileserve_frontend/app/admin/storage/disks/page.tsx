@@ -589,6 +589,138 @@ export default function DisksPage() {
                               ))}
                             </TableBody>
                           </Table>
+                        ) : disk.fstype || disk.mounted ? (
+                          /* Disk is formatted/mounted directly without partitions */
+                          <div className="space-y-4">
+                            <div className="p-4 rounded-lg bg-muted/50 border">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <HardDrive className="h-8 w-8 text-blue-500" />
+                                  <div>
+                                    <p className="font-medium">Whole Disk Formatted</p>
+                                    <p className="text-sm text-muted-foreground">
+                                      This disk is used as a single volume without partitions
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                <div>
+                                  <span className="text-muted-foreground">Filesystem:</span>{" "}
+                                  {disk.fstype ? (
+                                    <Badge variant="secondary">{disk.fstype}</Badge>
+                                  ) : (
+                                    <span className="text-muted-foreground">None</span>
+                                  )}
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground">Mount Point:</span>{" "}
+                                  {disk.mounted ? (
+                                    <span className="text-green-600">{disk.mountpoint}</span>
+                                  ) : (
+                                    <span className="text-muted-foreground">Not mounted</span>
+                                  )}
+                                </div>
+                                {disk.label && (
+                                  <div>
+                                    <span className="text-muted-foreground">Label:</span>{" "}
+                                    <span>{disk.label}</span>
+                                  </div>
+                                )}
+                                {disk.uuid && (
+                                  <div className="col-span-2">
+                                    <span className="text-muted-foreground">UUID:</span>{" "}
+                                    <span className="font-mono text-xs">{disk.uuid}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="mt-4 flex gap-2">
+                                {disk.mounted ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleUnmount({
+                                      path: disk.path,
+                                      mountpoint: disk.mountpoint || "",
+                                      name: disk.name,
+                                      size: disk.size,
+                                      size_human: disk.size_human,
+                                      start: 0,
+                                      end: disk.size,
+                                      type: "disk",
+                                      fstype: disk.fstype || "",
+                                      uuid: disk.uuid || "",
+                                      label: disk.label || "",
+                                      mounted: disk.mounted,
+                                      read_only: disk.read_only,
+                                    })}
+                                  >
+                                    <CircleStop className="h-4 w-4 mr-1" />
+                                    Unmount
+                                  </Button>
+                                ) : disk.fstype ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setMountDialog({
+                                        open: true,
+                                        partition: {
+                                          path: disk.path,
+                                          name: disk.name,
+                                          size: disk.size,
+                                          size_human: disk.size_human,
+                                          start: 0,
+                                          end: disk.size,
+                                          type: "disk",
+                                          fstype: disk.fstype || "",
+                                          uuid: disk.uuid || "",
+                                          label: disk.label || "",
+                                          mountpoint: "",
+                                          mounted: false,
+                                          read_only: disk.read_only,
+                                        }
+                                      });
+                                      setMountOptions({ mountPoint: `/mnt/${disk.name}`, persistent: false });
+                                    }}
+                                  >
+                                    <Play className="h-4 w-4 mr-1" />
+                                    Mount
+                                  </Button>
+                                ) : null}
+                                {!disk.mounted && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setFormatDialog({
+                                        open: true,
+                                        partition: {
+                                          path: disk.path,
+                                          name: disk.name,
+                                          size: disk.size,
+                                          size_human: disk.size_human,
+                                          start: 0,
+                                          end: disk.size,
+                                          type: "disk",
+                                          fstype: disk.fstype || "",
+                                          uuid: disk.uuid || "",
+                                          label: disk.label || "",
+                                          mountpoint: "",
+                                          mounted: false,
+                                          read_only: disk.read_only,
+                                        }
+                                      });
+                                      setFormatOptions({ fstype: "ext4", label: "", force: false });
+                                    }}
+                                  >
+                                    <Database className="h-4 w-4 mr-1" />
+                                    {disk.fstype ? "Re-format" : "Format"}
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
                         ) : (
                           <div className="text-center py-8 text-muted-foreground">
                             <HardDrive className="h-12 w-12 mx-auto mb-2 opacity-50" />

@@ -93,12 +93,16 @@ export default function PermissionsPage() {
         systemUsersAPI.list(false),
         systemUsersAPI.listGroups(),
       ]);
-      setPermissions(permsData);
-      setSystemUsers(usersData);
-      setSystemGroups(groupsData);
+      setPermissions(permsData || []);
+      setSystemUsers(usersData || []);
+      setSystemGroups(groupsData || []);
     } catch (error) {
       console.error("Failed to load data:", error);
       toast.error("Failed to load permissions");
+      // Set empty arrays on error
+      setPermissions([]);
+      setSystemUsers([]);
+      setSystemGroups([]);
     } finally {
       setIsLoading(false);
     }

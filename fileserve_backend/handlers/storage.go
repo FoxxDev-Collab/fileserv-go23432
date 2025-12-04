@@ -298,6 +298,11 @@ func getDisks() ([]models.DiskInfo, error) {
 			Rotational: dev.Rota,
 			Removable:  dev.RM,
 			ReadOnly:   dev.RO,
+			FSType:     dev.FSType,     // Disk-level filesystem (when formatted without partitions)
+			UUID:       dev.UUID,       // Disk-level UUID
+			Label:      dev.Label,      // Disk-level label
+			MountPoint: dev.MountPoint, // Disk-level mount point
+			Mounted:    dev.MountPoint != "",
 			Partitions: []models.Partition{},
 		}
 
@@ -1817,6 +1822,8 @@ func GetAvailableDevices() http.HandlerFunc {
 
 			// If disk has no partitions, it might be usable as a whole
 			if len(disk.Partitions) == 0 && !disk.ReadOnly {
+				// Check if the whole disk itself is mounted
+				diskMounted := mountedDevices[disk.Path] || disk.MountPoint != ""
 				available = append(available, AvailableDevice{
 					Name:        disk.Name,
 					Path:        disk.Path,
@@ -1825,11 +1832,11 @@ func GetAvailableDevices() http.HandlerFunc {
 					Type:        disk.Type,
 					Model:       disk.Model,
 					Serial:      disk.Serial,
-					FSType:      "",
-					Label:       "",
-					UUID:        "",
-					IsMounted:   false,
-					MountPoint:  "",
+					FSType:      disk.FSType,     // Include disk-level filesystem
+					Label:       disk.Label,      // Include disk-level label
+					UUID:        disk.UUID,       // Include disk-level UUID
+					IsMounted:   diskMounted,     // Check if disk itself is mounted
+					MountPoint:  disk.MountPoint, // Include disk-level mount point
 					ParentDisk:  "",
 					IsWholeDisk: true,
 				})

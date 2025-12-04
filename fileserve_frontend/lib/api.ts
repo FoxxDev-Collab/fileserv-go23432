@@ -728,6 +728,11 @@ export interface DiskInfo {
   rotational: boolean;
   removable: boolean;
   read_only: boolean;
+  fstype?: string;     // Disk-level filesystem (when formatted without partitions)
+  uuid?: string;       // Disk-level UUID
+  label?: string;      // Disk-level label
+  mountpoint?: string; // Disk-level mount point
+  mounted: boolean;    // Is disk itself mounted (no partitions)
   partitions: Partition[];
   smart?: SMARTInfo;
   temperature?: number;

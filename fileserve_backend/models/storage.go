@@ -14,6 +14,11 @@ type DiskInfo struct {
 	Rotational  bool         `json:"rotational"`
 	Removable   bool         `json:"removable"`
 	ReadOnly    bool         `json:"read_only"`
+	FSType      string       `json:"fstype,omitempty"`     // If disk itself is formatted (no partitions)
+	UUID        string       `json:"uuid,omitempty"`       // Disk-level UUID
+	Label       string       `json:"label,omitempty"`      // Disk-level label
+	MountPoint  string       `json:"mountpoint,omitempty"` // Disk-level mount point
+	Mounted     bool         `json:"mounted"`              // Is disk itself mounted (no partitions)
 	Partitions  []Partition  `json:"partitions"`
 	SMART       *SMARTInfo   `json:"smart,omitempty"`
 	Temperature *int         `json:"temperature,omitempty"` // Celsius
