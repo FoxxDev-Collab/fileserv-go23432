@@ -162,6 +162,7 @@ func (h *ChunkedUploadHandler) CreateSession(w http.ResponseWriter, r *http.Requ
 		req.TotalSize,
 		targetPath,
 		userCtx.UserID,
+		userCtx.Username,
 		req.ChunkSize,
 	)
 	if err != nil {

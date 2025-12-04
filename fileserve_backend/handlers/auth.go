@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"os/exec"
+	"strings"
 	"time"
 
 	"fileserv/config"
@@ -30,7 +33,7 @@ type UserResponse struct {
 	Groups   []string `json:"groups"`
 }
 
-func Login(store storage.DataStore, cfg *config.Config) http.HandlerFunc {
+func Login(store storage.DataStore, cfg *config.Config, jwtSecret string) http.HandlerFunc {
 	// Set admin groups from config
 	if len(cfg.AdminGroups) > 0 {
 		auth.SetAdminGroups(cfg.AdminGroups)
@@ -83,7 +86,7 @@ func Login(store storage.DataStore, cfg *config.Config) http.HandlerFunc {
 
 		// Generate JWT token
 		expiresAt := time.Now().Add(24 * time.Hour)
-		token, err := auth.GenerateToken(userID, username, isAdmin, groups, cfg.JWTSecret, 24*time.Hour)
+		token, err := auth.GenerateToken(userID, username, isAdmin, groups, jwtSecret, 24*time.Hour)
 		if err != nil {
 			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
 			return
@@ -119,7 +122,7 @@ func Logout() http.HandlerFunc {
 	}
 }
 
-func RefreshToken(cfg *config.Config) http.HandlerFunc {
+func RefreshToken(jwtSecret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userCtx := middleware.GetUserContext(r)
 		if userCtx == nil {
@@ -129,7 +132,7 @@ func RefreshToken(cfg *config.Config) http.HandlerFunc {
 
 		// Generate new token
 		expiresAt := time.Now().Add(24 * time.Hour)
-		token, err := auth.GenerateToken(userCtx.UserID, userCtx.Username, userCtx.IsAdmin, userCtx.Groups, cfg.JWTSecret, 24*time.Hour)
+		token, err := auth.GenerateToken(userCtx.UserID, userCtx.Username, userCtx.IsAdmin, userCtx.Groups, jwtSecret, 24*time.Hour)
 		if err != nil {
 			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
 			return
@@ -160,5 +163,63 @@ func GetCurrentUser() http.HandlerFunc {
 			"is_admin": userCtx.IsAdmin,
 			"groups":   userCtx.Groups,
 		})
+	}
+}
+
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+// ChangePassword allows the current user to change their own password
+func ChangePassword(cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userCtx := middleware.GetUserContext(r)
+		if userCtx == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var req ChangePasswordRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.CurrentPassword == "" || req.NewPassword == "" {
+			http.Error(w, "Current password and new password are required", http.StatusBadRequest)
+			return
+		}
+
+		if len(req.NewPassword) < 8 {
+			http.Error(w, "New password must be at least 8 characters", http.StatusBadRequest)
+			return
+		}
+
+		// Verify current password by attempting PAM authentication
+		if cfg.UsePAM {
+			_, err := auth.AuthenticatePAM(userCtx.Username, req.CurrentPassword)
+			if err != nil {
+				http.Error(w, "Current password is incorrect", http.StatusUnauthorized)
+				return
+			}
+
+			// Use chpasswd to change password
+			cmd := exec.Command("chpasswd")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf("%s:%s", userCtx.Username, req.NewPassword))
+			if output, err := cmd.CombinedOutput(); err != nil {
+				log.Printf("Failed to change password for %s: %v - %s", userCtx.Username, err, string(output))
+				http.Error(w, "Failed to change password", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			// For non-PAM mode, this would need to update the internal user store
+			http.Error(w, "Password change not supported in non-PAM mode", http.StatusNotImplemented)
+			return
+		}
+
+		log.Printf("Password changed successfully for user %s", userCtx.Username)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"message": "Password changed successfully"})
 	}
 }

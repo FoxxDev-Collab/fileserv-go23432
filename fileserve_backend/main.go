@@ -57,6 +57,19 @@ func main() {
 	publicHandler := handlers.NewPublicHandler(store, cfg.DataDir)
 	zoneFileHandler := handlers.NewZoneFileHandler(store)
 	chunkedUploadHandler := handlers.NewChunkedUploadHandler(store, chunkedUploadManager)
+	setupHandler := handlers.NewSetupHandler(store)
+	settingsHandler := handlers.NewSettingsHandler(store)
+
+	// Get JWT secret from database if available, otherwise use config or generate one
+	jwtSecret := handlers.GetJWTSecretFromStore(store)
+	if jwtSecret == "" {
+		jwtSecret = cfg.JWTSecret
+	}
+	if jwtSecret == "" {
+		// Generate a temporary secret for first run (will be replaced during setup)
+		log.Println("Warning: No JWT secret configured. A temporary secret will be used until setup is complete.")
+		jwtSecret = "temporary-secret-complete-setup-wizard"
+	}
 
 	// Setup router
 	r := chi.NewRouter()
@@ -77,16 +90,21 @@ func main() {
 
 	// API routes
 	r.Route("/api", func(r chi.Router) {
+		// Setup routes (public - but only work before setup is complete)
+		r.Get("/setup/status", setupHandler.GetSetupStatus)
+		r.Post("/setup/complete", setupHandler.CompleteSetup)
+
 		// Auth routes (public)
-		r.Post("/auth/login", handlers.Login(store, cfg))
+		r.Post("/auth/login", handlers.Login(store, cfg, jwtSecret))
 
 		// Protected routes
 		r.Group(func(r chi.Router) {
-			r.Use(middleware.Auth(cfg.JWTSecret))
+			r.Use(middleware.Auth(jwtSecret))
 
 			r.Post("/auth/logout", handlers.Logout())
-			r.Post("/auth/refresh", handlers.RefreshToken(cfg))
+			r.Post("/auth/refresh", handlers.RefreshToken(jwtSecret))
 			r.Get("/auth/me", handlers.GetCurrentUser())
+			r.Post("/auth/password", handlers.ChangePassword(cfg))
 
 			// File operations (legacy - uses global DataDir)
 			r.Get("/files", handlers.ListFiles(store, cfg))
@@ -137,6 +155,13 @@ func main() {
 
 				r.Get("/admin/stats", handlers.GetStats(store, cfg))
 
+				// Settings management
+				r.Route("/admin/settings", func(r chi.Router) {
+					r.Get("/", settingsHandler.GetSettings)
+					r.Put("/", settingsHandler.UpdateSettings)
+					r.Post("/regenerate-jwt", settingsHandler.RegenerateJWTSecret)
+				})
+
 				// Internal user management
 				r.Get("/users", handlers.ListUsers(store))
 				r.Post("/users", handlers.CreateUser(store))
@@ -145,7 +170,10 @@ func main() {
 
 				// System user management (for root/wheel admins)
 				r.Get("/system/users", handlers.ListSystemUsers())
+				r.Post("/system/users", handlers.CreateSystemUser())
 				r.Get("/system/users/{username}", handlers.GetSystemUser())
+				r.Put("/system/users/{username}", handlers.UpdateSystemUser())
+				r.Delete("/system/users/{username}", handlers.DeleteSystemUser())
 				r.Get("/system/groups", handlers.ListSystemGroups())
 
 				// File share management
@@ -194,6 +222,7 @@ func main() {
 
 					// Disks and Partitions
 					r.Get("/disks", handlers.GetDisks())
+					r.Post("/disks/partition-table", handlers.CreatePartitionTable())
 					r.Post("/partitions", handlers.CreatePartition())
 					r.Delete("/partitions", handlers.DeletePartition())
 					r.Post("/partitions/format", handlers.FormatPartition())
@@ -252,6 +281,54 @@ func main() {
 				r.Get("/storage/scan", handlers.ScanFilesystemUsage())
 				r.Get("/storage/large-files", handlers.FindLargeFiles())
 				r.Get("/storage/health", handlers.CheckFilesystemHealth())
+
+				// Sharing Services Management (SMB/NFS)
+				r.Route("/sharing", func(r chi.Router) {
+					r.Get("/status", handlers.GetSharingServices())
+					r.Post("/install", handlers.InstallSharingService())
+					r.Get("/install/stream", handlers.InstallSharingServiceStream())
+					r.Post("/control", handlers.ControlSharingService())
+					r.Get("/smb/config", handlers.GetSMBConfig())
+					r.Get("/smb/status", handlers.GetSMBStatus())
+					r.Get("/smb/test", handlers.TestSMBConnection())
+					r.Get("/smb/users", handlers.GetSambaUsers())
+					r.Post("/smb/password", handlers.SetSambaPassword())
+					r.Get("/nfs/exports", handlers.GetNFSExports())
+					r.Get("/nfs/status", handlers.GetNFSStatus())
+					r.Get("/nfs/test", handlers.TestNFSConnection())
+				})
+
+				// ZFS Management
+				r.Route("/zfs", func(r chi.Router) {
+					// Status and Installation
+					r.Get("/status", handlers.GetZFSStatus())
+					r.Post("/install", handlers.InstallZFS())
+					r.Get("/install/stream", handlers.InstallZFSStream())
+					r.Post("/load-module", handlers.LoadZFSModule())
+					r.Get("/disks", handlers.GetAvailableDisksForZFS())
+
+					// Pool Management
+					r.Get("/pools", handlers.ListZFSPools())
+					r.Get("/pools/status", handlers.GetZFSPoolStatus())
+					r.Post("/pools", handlers.CreateZFSPool())
+					r.Delete("/pools", handlers.DestroyZFSPool())
+					r.Post("/pools/scrub", handlers.ScrubZFSPool())
+					r.Post("/pools/import", handlers.ImportZFSPool())
+					r.Post("/pools/export", handlers.ExportZFSPool())
+					r.Get("/pools/importable", handlers.ListImportablePools())
+
+					// Dataset Management
+					r.Get("/datasets", handlers.ListZFSDatasets())
+					r.Post("/datasets", handlers.CreateZFSDataset())
+					r.Delete("/datasets", handlers.DestroyZFSDataset())
+					r.Post("/datasets/property", handlers.SetZFSProperty())
+
+					// Snapshot Management
+					r.Get("/snapshots", handlers.ListZFSSnapshots())
+					r.Post("/snapshots", handlers.CreateZFSSnapshot())
+					r.Delete("/snapshots", handlers.DeleteZFSSnapshot())
+					r.Post("/snapshots/rollback", handlers.RollbackZFSSnapshot())
+				})
 
 				// System Management
 				r.Route("/system", func(r chi.Router) {

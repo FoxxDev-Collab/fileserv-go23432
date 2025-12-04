@@ -25,13 +25,16 @@ import {
   storageAPI,
   usersAPI,
   systemUsersAPI,
+  sharingServicesAPI,
   StoragePool,
   DirectoryEntry,
   ShareZone,
   ZoneSMBOptions,
   ZoneNFSOptions,
   ZoneWebOptions,
+  SambaUsersResponse,
 } from "@/lib/api";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PageSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import {
@@ -174,6 +177,14 @@ function EditZonePage() {
   const [newDenyGroup, setNewDenyGroup] = useState("");
   const [newNFSHost, setNewNFSHost] = useState("");
 
+  // Samba password management state
+  const [sambaUsers, setSambaUsers] = useState<SambaUsersResponse | null>(null);
+  const [updateSambaPassword, setUpdateSambaPassword] = useState(false);
+  const [sambaPasswordUser, setSambaPasswordUser] = useState("");
+  const [sambaPassword, setSambaPassword] = useState("");
+  const [sambaPasswordConfirm, setSambaPasswordConfirm] = useState("");
+  const [isSettingPassword, setIsSettingPassword] = useState(false);
+
   const [formData, setFormData] = useState<FormData>({
     pool_id: "",
     name: "",
@@ -276,6 +287,14 @@ function EditZonePage() {
           if (pool) {
             browseDirectory(pool.path);
           }
+        }
+
+        // Fetch Samba users if SMB is enabled
+        try {
+          const sambaUsersData = await sharingServicesAPI.getSambaUsers();
+          setSambaUsers(sambaUsersData);
+        } catch {
+          // Ignore - Samba might not be installed
         }
       } catch (error) {
         toast.error(`Failed to load zone data: ${error}`);
@@ -1036,6 +1055,138 @@ function EditZonePage() {
                               smb_options: { ...prev.smb_options, inherit: checked }
                             }))}
                           />
+                        </div>
+
+                        {/* Samba Password Management */}
+                        <div className="mt-6 pt-6 border-t space-y-4">
+                          <div>
+                            <Label className="text-base font-medium">Samba Password Management</Label>
+                            <p className="text-sm text-muted-foreground">
+                              Manage Samba passwords for users accessing this share
+                            </p>
+                          </div>
+
+                          {/* Show current Samba users */}
+                          {sambaUsers && sambaUsers.available && sambaUsers.users.length > 0 && (
+                            <div className="p-3 bg-muted/50 rounded-lg">
+                              <p className="text-sm font-medium mb-2">Users with Samba passwords:</p>
+                              <div className="flex flex-wrap gap-2">
+                                {sambaUsers.users.map(u => (
+                                  <Badge key={u} variant="secondary">
+                                    <User className="h-3 w-3 mr-1" />
+                                    {u}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <Label>Update Samba Password</Label>
+                              <p className="text-sm text-muted-foreground">
+                                Set or update a Samba password for a user
+                              </p>
+                            </div>
+                            <Switch
+                              checked={updateSambaPassword}
+                              onCheckedChange={setUpdateSambaPassword}
+                            />
+                          </div>
+
+                          {updateSambaPassword && (
+                            <div className="space-y-4 p-4 bg-muted/50 rounded-lg">
+                              <Alert>
+                                <Info className="h-4 w-4" />
+                                <AlertTitle>Samba Authentication</AlertTitle>
+                                <AlertDescription>
+                                  Windows clients use Samba&apos;s password database, not Linux passwords.
+                                  Set or update the password for users who need SMB access.
+                                </AlertDescription>
+                              </Alert>
+
+                              <div className="grid gap-2">
+                                <Label htmlFor="samba_user">Username</Label>
+                                <Select
+                                  value={sambaPasswordUser}
+                                  onValueChange={setSambaPasswordUser}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select user" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {formData.smb_options.force_user && (
+                                      <SelectItem value={formData.smb_options.force_user}>
+                                        {formData.smb_options.force_user} (Force User)
+                                      </SelectItem>
+                                    )}
+                                    {systemUsers
+                                      .filter(u => u !== formData.smb_options.force_user)
+                                      .map(u => (
+                                        <SelectItem key={u} value={u}>{u}</SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">
+                                  {formData.smb_options.force_user
+                                    ? `Recommended: "${formData.smb_options.force_user}" (your force user)`
+                                    : "Select the user who needs SMB access"}
+                                </p>
+                              </div>
+
+                              <div className="grid gap-2">
+                                <Label htmlFor="samba_password">New Samba Password</Label>
+                                <Input
+                                  id="samba_password"
+                                  type="password"
+                                  placeholder="Enter new Samba password"
+                                  value={sambaPassword}
+                                  onChange={(e) => setSambaPassword(e.target.value)}
+                                />
+                              </div>
+
+                              <div className="grid gap-2">
+                                <Label htmlFor="samba_password_confirm">Confirm Password</Label>
+                                <Input
+                                  id="samba_password_confirm"
+                                  type="password"
+                                  placeholder="Confirm Samba password"
+                                  value={sambaPasswordConfirm}
+                                  onChange={(e) => setSambaPasswordConfirm(e.target.value)}
+                                />
+                                {sambaPassword && sambaPasswordConfirm && sambaPassword !== sambaPasswordConfirm && (
+                                  <p className="text-xs text-destructive">Passwords do not match</p>
+                                )}
+                              </div>
+
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                disabled={!sambaPasswordUser || !sambaPassword || sambaPassword !== sambaPasswordConfirm || isSettingPassword}
+                                onClick={async () => {
+                                  if (!sambaPasswordUser || !sambaPassword || sambaPassword !== sambaPasswordConfirm) return;
+                                  setIsSettingPassword(true);
+                                  try {
+                                    await sharingServicesAPI.setSambaPassword(sambaPasswordUser, sambaPassword);
+                                    toast.success(`Samba password updated for ${sambaPasswordUser}`);
+                                    // Reset the form
+                                    setSambaPassword("");
+                                    setSambaPasswordConfirm("");
+                                    setUpdateSambaPassword(false);
+                                    // Refresh Samba users list
+                                    const updated = await sharingServicesAPI.getSambaUsers();
+                                    setSambaUsers(updated);
+                                  } catch (error) {
+                                    toast.error(`Failed to set Samba password: ${error}`);
+                                  } finally {
+                                    setIsSettingPassword(false);
+                                  }
+                                }}
+                              >
+                                {isSettingPassword ? "Setting Password..." : "Set Samba Password"}
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}

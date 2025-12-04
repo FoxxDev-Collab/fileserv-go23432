@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -18,20 +20,21 @@ const DefaultChunkSize = 5 * 1024 * 1024
 
 // UploadSession represents an in-progress chunked upload
 type UploadSession struct {
-	ID            string            `json:"id"`
-	Filename      string            `json:"filename"`
-	TotalSize     int64             `json:"total_size"`
-	ChunkSize     int64             `json:"chunk_size"`
-	TotalChunks   int               `json:"total_chunks"`
-	UploadedChunks map[int]bool     `json:"uploaded_chunks"`
-	TargetPath    string            `json:"target_path"`
-	TempDir       string            `json:"temp_dir"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
-	ExpiresAt     time.Time         `json:"expires_at"`
-	OwnerID       string            `json:"owner_id"`
-	Metadata      map[string]string `json:"metadata,omitempty"`
-	mu            sync.RWMutex
+	ID             string            `json:"id"`
+	Filename       string            `json:"filename"`
+	TotalSize      int64             `json:"total_size"`
+	ChunkSize      int64             `json:"chunk_size"`
+	TotalChunks    int               `json:"total_chunks"`
+	UploadedChunks map[int]bool      `json:"uploaded_chunks"`
+	TargetPath     string            `json:"target_path"`
+	TempDir        string            `json:"temp_dir"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
+	ExpiresAt      time.Time         `json:"expires_at"`
+	OwnerID        string            `json:"owner_id"`
+	OwnerUsername  string            `json:"owner_username"` // System username for chown
+	Metadata       map[string]string `json:"metadata,omitempty"`
+	mu             sync.RWMutex
 }
 
 // UploadProgress represents the current progress of an upload
@@ -86,7 +89,7 @@ func (m *ChunkedUploadManager) Close() {
 }
 
 // CreateSession creates a new upload session
-func (m *ChunkedUploadManager) CreateSession(filename string, totalSize int64, targetPath string, ownerID string, chunkSize int64) (*UploadSession, error) {
+func (m *ChunkedUploadManager) CreateSession(filename string, totalSize int64, targetPath string, ownerID string, ownerUsername string, chunkSize int64) (*UploadSession, error) {
 	if chunkSize <= 0 {
 		chunkSize = DefaultChunkSize
 	}
@@ -124,6 +127,7 @@ func (m *ChunkedUploadManager) CreateSession(filename string, totalSize int64, t
 		UpdatedAt:      now,
 		ExpiresAt:      now.Add(m.sessionTTL),
 		OwnerID:        ownerID,
+		OwnerUsername:  ownerUsername,
 		Metadata:       make(map[string]string),
 	}
 
@@ -265,10 +269,20 @@ func (m *ChunkedUploadManager) Finalize(sessionID string) (string, error) {
 	// TargetPath is the directory, combine with filename for final path
 	finalPath := filepath.Join(session.TargetPath, session.Filename)
 
-	// Ensure target directory exists
+	// Ensure target directory exists and set proper ownership
 	targetDir := filepath.Dir(finalPath)
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create target directory: %w", err)
+	}
+
+	// Set directory ownership if we have a username
+	if session.OwnerUsername != "" {
+		if u, err := user.Lookup(session.OwnerUsername); err == nil {
+			uid, _ := strconv.Atoi(u.Uid)
+			gid, _ := strconv.Atoi(u.Gid)
+			// Chown the target directory (session.TargetPath) to ensure user owns it
+			os.Chown(session.TargetPath, uid, gid)
+		}
 	}
 
 	// Create final file
@@ -313,6 +327,29 @@ func (m *ChunkedUploadManager) Finalize(sessionID string) (string, error) {
 	if stat.Size() != session.TotalSize {
 		os.Remove(finalPath)
 		return "", fmt.Errorf("final file size mismatch: expected %d, got %d", session.TotalSize, stat.Size())
+	}
+
+	// Set file permissions and ownership
+	if session.OwnerUsername != "" {
+		u, err := user.Lookup(session.OwnerUsername)
+		if err != nil {
+			os.Remove(finalPath)
+			return "", fmt.Errorf("failed to lookup user %s: %w", session.OwnerUsername, err)
+		}
+		uid, _ := strconv.Atoi(u.Uid)
+		gid, _ := strconv.Atoi(u.Gid)
+
+		// Set file permissions (rw-r--r--)
+		if err := os.Chmod(finalPath, 0644); err != nil {
+			os.Remove(finalPath)
+			return "", fmt.Errorf("failed to set file permissions: %w", err)
+		}
+
+		// Set file ownership
+		if err := os.Chown(finalPath, uid, gid); err != nil {
+			os.Remove(finalPath)
+			return "", fmt.Errorf("failed to set file ownership: %w", err)
+		}
 	}
 
 	// Clean up session

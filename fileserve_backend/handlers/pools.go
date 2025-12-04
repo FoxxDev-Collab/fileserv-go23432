@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
+	osuser "os/user"
 	"path/filepath"
+	"strconv"
 	"syscall"
 
 	"fileserv/models"
@@ -339,6 +342,21 @@ func (h *ZoneHandler) CreateShareZone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Apply SMB configuration if enabled
+	if created.SMBEnabled && created.SMBOptions != nil {
+		if err := ApplySingleZoneSMB(created, fullPath); err != nil {
+			// Log error but don't fail the request - zone is created
+			log.Printf("Warning: Failed to apply SMB config for zone %s: %v", created.Name, err)
+		}
+	}
+
+	// Apply NFS configuration if enabled
+	if created.NFSEnabled && created.NFSOptions != nil {
+		if err := ApplySingleZoneNFS(created, fullPath); err != nil {
+			log.Printf("Warning: Failed to apply NFS config for zone %s: %v", created.Name, err)
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(created)
@@ -360,6 +378,36 @@ func (h *ZoneHandler) UpdateShareZone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get pool to construct full path
+	pool, err := h.store.GetStoragePool(updated.PoolID)
+	if err == nil {
+		fullPath := filepath.Join(pool.Path, updated.Path)
+
+		// Re-apply SMB configuration
+		if updated.SMBEnabled && updated.SMBOptions != nil {
+			if err := ApplySingleZoneSMB(updated, fullPath); err != nil {
+				log.Printf("Warning: Failed to apply SMB config for zone %s: %v", updated.Name, err)
+			}
+		} else {
+			// SMB was disabled, remove the share
+			if err := RemoveZoneSMB(updated); err != nil {
+				log.Printf("Warning: Failed to remove SMB config for zone %s: %v", updated.Name, err)
+			}
+		}
+
+		// Re-apply NFS configuration
+		if updated.NFSEnabled && updated.NFSOptions != nil {
+			if err := ApplySingleZoneNFS(updated, fullPath); err != nil {
+				log.Printf("Warning: Failed to apply NFS config for zone %s: %v", updated.Name, err)
+			}
+		} else {
+			// NFS was disabled, remove the export
+			if err := RemoveZoneNFS(updated); err != nil {
+				log.Printf("Warning: Failed to remove NFS config for zone %s: %v", updated.Name, err)
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(updated)
 }
@@ -367,6 +415,27 @@ func (h *ZoneHandler) UpdateShareZone(w http.ResponseWriter, r *http.Request) {
 // DeleteShareZone deletes a share zone
 func (h *ZoneHandler) DeleteShareZone(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+
+	// Get zone before deleting to clean up SMB/NFS
+	zone, err := h.store.GetShareZone(id)
+	if err != nil {
+		http.Error(w, "share zone not found", http.StatusNotFound)
+		return
+	}
+
+	// Remove SMB configuration
+	if zone.SMBEnabled {
+		if err := RemoveZoneSMB(zone); err != nil {
+			log.Printf("Warning: Failed to remove SMB config for zone %s: %v", zone.Name, err)
+		}
+	}
+
+	// Remove NFS configuration
+	if zone.NFSEnabled {
+		if err := RemoveZoneNFS(zone); err != nil {
+			log.Printf("Warning: Failed to remove NFS config for zone %s: %v", zone.Name, err)
+		}
+	}
 
 	if err := h.store.DeleteShareZone(id); err != nil {
 		if err.Error() == "share zone not found" {
@@ -474,6 +543,13 @@ func (h *ZoneHandler) ProvisionUserDirectory(w http.ResponseWriter, r *http.Requ
 	if err := os.MkdirAll(userPath, 0755); err != nil {
 		http.Error(w, "Cannot create user directory: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Set ownership of the user directory
+	if u, err := osuser.Lookup(req.Username); err == nil {
+		uid, _ := strconv.Atoi(u.Uid)
+		gid, _ := strconv.Atoi(u.Gid)
+		os.Chown(userPath, uid, gid)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

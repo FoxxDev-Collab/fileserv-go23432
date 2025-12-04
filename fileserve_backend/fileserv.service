@@ -1,27 +1,21 @@
 [Unit]
 Description=FileServ - File Server with Authentication
+Documentation=https://github.com/your-org/fileserv
 After=network.target
 
 [Service]
 Type=simple
-User=fileserv
-Group=fileserv
+# Run as root for PAM authentication and system management
+User=root
+Group=root
 WorkingDirectory=/opt/fileserv
 ExecStart=/opt/fileserv/fileserv
 Restart=on-failure
 RestartSec=5s
 
-# Environment variables
+# Environment (minimal - most config is in database)
 Environment="PORT=8080"
 Environment="DATA_DIR=/var/lib/fileserv/data"
-Environment="JWT_SECRET=change-me-in-production"
-
-# Security hardening
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/fileserv
 
 # Graceful shutdown
 KillMode=mixed

@@ -147,6 +147,12 @@ export const authAPI = {
     fetchAPI<CurrentUserResponse>('/auth/me', {
       method: 'GET',
     }),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    fetchAPI<{ message: string }>('/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
 };
 
 // Files API
@@ -511,12 +517,47 @@ export interface SystemGroup {
   members: string[];
 }
 
+export interface CreateUserRequest {
+  username: string;
+  password: string;
+  name?: string;
+  shell?: string;
+  home_dir?: string;
+  groups?: string[];
+}
+
+export interface UpdateUserRequest {
+  password?: string;
+  name?: string;
+  shell?: string;
+  home_dir?: string;
+  groups?: string[];
+  locked?: boolean;
+}
+
 export const systemUsersAPI = {
   list: (includeSystem: boolean = false) =>
     fetchAPI<SystemUser[]>(`/system/users?include_system=${includeSystem}`),
 
   get: (username: string) =>
     fetchAPI<SystemUser>(`/system/users/${encodeURIComponent(username)}`),
+
+  create: (data: CreateUserRequest) =>
+    fetchAPI<SystemUser>('/system/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  update: (username: string, data: UpdateUserRequest) =>
+    fetchAPI<SystemUser>(`/system/users/${encodeURIComponent(username)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  delete: (username: string, removeHome: boolean = false) =>
+    fetchAPI<void>(`/system/users/${encodeURIComponent(username)}?remove_home=${removeHome}`, {
+      method: 'DELETE',
+    }),
 
   listGroups: () => fetchAPI<SystemGroup[]>('/system/groups'),
 };
@@ -849,15 +890,71 @@ export interface ZFSDataset {
   name: string;
   type: string;
   used: number;
-  used_human: string;
+  used_human?: string;
   available: number;
-  available_human: string;
+  available_human?: string;
   referenced: number;
   mountpoint?: string;
   compression: string;
-  compress_ratio: number;
-  quota?: number;
+  compress_ratio?: number;
+  quota?: number | string;
   quota_human?: string;
+  reservation?: string;
+  recordsize?: string;
+  atime?: string;
+  sync?: string;
+}
+
+export interface ZFSSnapshot {
+  name: string;
+  dataset: string;
+  used: number;
+  referenced: number;
+  creation: string;
+}
+
+export interface ZFSStatus {
+  installed: boolean;
+  kernel_module: boolean;
+  version: string;
+  package_name: string;
+  can_install: boolean;
+  message: string;
+  package_manager: string;
+}
+
+export interface ZFSVDevConfig {
+  name: string;
+  state: string;
+  read: string;
+  write: string;
+  cksum: string;
+  indent: number;
+}
+
+export interface ZFSPoolStatus {
+  name: string;
+  state: string;
+  status: string;
+  action: string;
+  scan: string;
+  config: ZFSVDevConfig[];
+  errors: string;
+}
+
+export interface ZFSDisk {
+  path: string;
+  size: number;
+  model: string;
+  type: string;
+  in_use: boolean;
+  in_pool: string;
+}
+
+export interface ImportablePool {
+  name: string;
+  id: string;
+  state: string;
 }
 
 // Quota Types
@@ -1102,6 +1199,12 @@ export const storageAPI = {
 
   // Disks and Partitions
   getDisks: () => fetchAPI<DiskInfo[]>('/storage/disks'),
+
+  createPartitionTable: (data: { disk: string; table_type: 'gpt' | 'msdos' }) =>
+    fetchAPI<{ message: string; disk: string; table_type: string }>('/storage/disks/partition-table', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   createPartition: (data: { disk: string; start: string; end: string; fstype?: string; label?: string }) =>
     fetchAPI<{ message: string }>('/storage/partitions', {
@@ -1637,6 +1740,67 @@ async function fetchPublic<T>(endpoint: string, options: RequestInit = {}): Prom
   return {} as T;
 }
 
+// ============================================================================
+// Setup & Settings API
+// ============================================================================
+
+export interface SetupStatus {
+  setup_complete: boolean;
+  server_name?: string;
+}
+
+export interface SetupRequest {
+  server_name: string;
+  admin_groups: string[];
+  use_pam: boolean;
+  session_expiry_hours: number;
+}
+
+export interface Setting {
+  key: string;
+  value: string;
+  type: string;
+  category: string;
+  updated_at: string;
+}
+
+export interface SettingsUpdateRequest {
+  server_name?: string;
+  admin_groups?: string[];
+  use_pam?: boolean;
+  session_expiry_hours?: number;
+}
+
+export const setupAPI = {
+  // Check setup status (no auth required)
+  getStatus: () => fetchPublic<SetupStatus>(`${API_BASE}/setup/status`),
+
+  // Complete setup (no auth required, only works before setup is complete)
+  complete: (data: SetupRequest) =>
+    fetchPublic<{ success: boolean; message: string }>(`${API_BASE}/setup/complete`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+};
+
+export const settingsAPI = {
+  // Get all settings (admin only)
+  getAll: () => fetchAPI<Setting[]>('/admin/settings'),
+
+  // Update settings (admin only)
+  update: (data: SettingsUpdateRequest) =>
+    fetchAPI<{ success: boolean; message: string }>('/admin/settings', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  // Regenerate JWT secret (admin only - invalidates all sessions)
+  regenerateJWT: () =>
+    fetchAPI<{ success: boolean; message: string }>('/admin/settings/regenerate-jwt', {
+      method: 'POST',
+    }),
+};
+
 export const publicShareAPI = {
   // Get public share info
   getInfo: (token: string) => fetchPublic<PublicShareInfo>(`/s/${token}`),
@@ -1686,4 +1850,270 @@ export const publicShareAPI = {
 
     return response.json();
   },
+};
+
+// ============================================================================
+// Sharing Services API (SMB/NFS Management)
+// ============================================================================
+
+export interface SharingServiceStatus {
+  protocol: string;
+  display_name: string;
+  installed: boolean;
+  running: boolean;
+  enabled: boolean;
+  version: string;
+  package_name: string;
+  service_name: string;
+  active_shares: number;
+  message: string;
+}
+
+export interface SharingServicesResponse {
+  smb: SharingServiceStatus;
+  nfs: SharingServiceStatus;
+  package_manager: string;
+  can_install: boolean;
+}
+
+export interface ServiceTestResult {
+  reachable: boolean;
+  port: number;
+  message: string;
+  exports?: string;
+}
+
+// SMB Connection Status Types
+export interface SMBConnection {
+  pid: number;
+  username: string;
+  group: string;
+  machine: string;
+  ip_address: string;
+  protocol: string;
+  signing: string;
+  encryption: string;
+}
+
+export interface SMBShare {
+  service: string;
+  pid: number;
+  machine: string;
+  connected_at: string;
+}
+
+export interface SMBOpenFile {
+  pid: number;
+  username: string;
+  mode: string;
+  access: string;
+  rw: string;
+  oplock: string;
+  share_path: string;
+  name: string;
+}
+
+export interface SMBStatusResponse {
+  available: boolean;
+  connections: SMBConnection[];
+  shares: SMBShare[];
+  open_files: SMBOpenFile[];
+  total_clients: number;
+  total_shares: number;
+  total_files: number;
+  error?: string;
+}
+
+// NFS Connection Status Types
+export interface NFSClient {
+  ip_address: string;
+  hostname: string;
+  mounted_path: string;
+  export_path: string;
+  nfs_version?: string;
+  port?: string;
+}
+
+export interface NFSExport {
+  path: string;
+  clients: string[];
+  options: string;
+}
+
+export interface NFSStatusResponse {
+  available: boolean;
+  exports: NFSExport[];
+  clients: NFSClient[];
+  total_exports: number;
+  total_clients: number;
+  error?: string;
+}
+
+// Samba users response
+export interface SambaUsersResponse {
+  available: boolean;
+  users: string[];
+  message: string;
+}
+
+export const sharingServicesAPI = {
+  // Get status of SMB and NFS services
+  getStatus: () => fetchAPI<SharingServicesResponse>('/sharing/status'),
+
+  // Install a sharing service
+  install: (service: 'smb' | 'nfs') =>
+    fetchAPI<{ message: string }>('/sharing/install', {
+      method: 'POST',
+      body: JSON.stringify({ service }),
+    }),
+
+  // Control a sharing service (start, stop, restart, enable, disable)
+  control: (service: 'smb' | 'nfs', action: 'start' | 'stop' | 'restart' | 'enable' | 'disable') =>
+    fetchAPI<{ message: string }>('/sharing/control', {
+      method: 'POST',
+      body: JSON.stringify({ service, action }),
+    }),
+
+  // Get SMB configuration
+  getSMBConfig: () => fetchAPI<{ config: string }>('/sharing/smb/config'),
+
+  // Get detailed SMB status (connections, shares, open files)
+  getSMBStatus: () => fetchAPI<SMBStatusResponse>('/sharing/smb/status'),
+
+  // Get list of Samba users (users with Samba passwords set)
+  getSambaUsers: () => fetchAPI<SambaUsersResponse>('/sharing/smb/users'),
+
+  // Set Samba password for a user
+  setSambaPassword: (username: string, password: string) =>
+    fetchAPI<{ message: string }>('/sharing/smb/password', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+
+  // Get NFS exports
+  getNFSExports: () => fetchAPI<{ exports: string }>('/sharing/nfs/exports'),
+
+  // Get detailed NFS status (exports, clients)
+  getNFSStatus: () => fetchAPI<NFSStatusResponse>('/sharing/nfs/status'),
+
+  // Test SMB connection
+  testSMB: () => fetchAPI<ServiceTestResult>('/sharing/smb/test'),
+
+  // Test NFS connection
+  testNFS: () => fetchAPI<ServiceTestResult>('/sharing/nfs/test'),
+};
+
+// =====================
+// ZFS API
+// =====================
+
+export const zfsAPI = {
+  // Status and Installation
+  getStatus: () => fetchAPI<ZFSStatus>('/zfs/status'),
+
+  install: () => fetchAPI<{ message: string; output: string }>('/zfs/install', { method: 'POST' }),
+
+  loadModule: () => fetchAPI<{ message: string }>('/zfs/load-module', { method: 'POST' }),
+
+  getAvailableDisks: () => fetchAPI<ZFSDisk[]>('/zfs/disks'),
+
+  // Pool Management
+  listPools: () => fetchAPI<ZFSPool[]>('/zfs/pools'),
+
+  getPoolStatus: (pool: string) => fetchAPI<ZFSPoolStatus>(`/zfs/pools/status?pool=${encodeURIComponent(pool)}`),
+
+  createPool: (data: {
+    name: string;
+    vdev_type: string;
+    devices: string[];
+    mountpoint?: string;
+    force?: boolean;
+    ashift?: number;
+  }) => fetchAPI<{ message: string }>('/zfs/pools', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  destroyPool: (name: string, force?: boolean) => fetchAPI<{ message: string }>('/zfs/pools', {
+    method: 'DELETE',
+    body: JSON.stringify({ name, force }),
+  }),
+
+  scrubPool: (pool: string, action: 'start' | 'stop' | 'pause' = 'start') =>
+    fetchAPI<{ message: string }>('/zfs/pools/scrub', {
+      method: 'POST',
+      body: JSON.stringify({ pool, action }),
+    }),
+
+  importPool: (pool?: string, force?: boolean, altroot?: string) =>
+    fetchAPI<{ message: string }>('/zfs/pools/import', {
+      method: 'POST',
+      body: JSON.stringify({ pool, force, altroot }),
+    }),
+
+  exportPool: (pool: string, force?: boolean) =>
+    fetchAPI<{ message: string }>('/zfs/pools/export', {
+      method: 'POST',
+      body: JSON.stringify({ pool, force }),
+    }),
+
+  listImportablePools: () => fetchAPI<ImportablePool[]>('/zfs/pools/importable'),
+
+  // Dataset Management
+  listDatasets: (pool?: string) => {
+    const url = pool ? `/zfs/datasets?pool=${encodeURIComponent(pool)}` : '/zfs/datasets';
+    return fetchAPI<ZFSDataset[]>(url);
+  },
+
+  createDataset: (data: {
+    name: string;
+    type?: string;
+    volume_size?: string;
+    mountpoint?: string;
+    compression?: string;
+    quota?: string;
+    reservation?: string;
+    recordsize?: string;
+    atime?: string;
+    sync?: string;
+  }) => fetchAPI<{ message: string }>('/zfs/datasets', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  destroyDataset: (name: string, recursive?: boolean, force?: boolean) =>
+    fetchAPI<{ message: string }>('/zfs/datasets', {
+      method: 'DELETE',
+      body: JSON.stringify({ name, recursive, force }),
+    }),
+
+  setProperty: (dataset: string, property: string, value: string) =>
+    fetchAPI<{ message: string }>('/zfs/datasets/property', {
+      method: 'POST',
+      body: JSON.stringify({ dataset, property, value }),
+    }),
+
+  // Snapshot Management
+  listSnapshots: (dataset?: string) => {
+    const url = dataset ? `/zfs/snapshots?dataset=${encodeURIComponent(dataset)}` : '/zfs/snapshots';
+    return fetchAPI<ZFSSnapshot[]>(url);
+  },
+
+  createSnapshot: (dataset: string, name: string, recursive?: boolean) =>
+    fetchAPI<{ message: string; snapshot: string }>('/zfs/snapshots', {
+      method: 'POST',
+      body: JSON.stringify({ dataset, name, recursive }),
+    }),
+
+  deleteSnapshot: (name: string, recursive?: boolean) =>
+    fetchAPI<{ message: string }>('/zfs/snapshots', {
+      method: 'DELETE',
+      body: JSON.stringify({ name, recursive }),
+    }),
+
+  rollbackSnapshot: (name: string, destroyRecent?: boolean, destroyClones?: boolean, force?: boolean) =>
+    fetchAPI<{ message: string }>('/zfs/snapshots/rollback', {
+      method: 'POST',
+      body: JSON.stringify({ name, destroy_recent: destroyRecent, destroy_clones: destroyClones, force }),
+    }),
 };

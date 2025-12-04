@@ -20,13 +20,13 @@ type Config struct {
 
 func Load() *Config {
 	cfg := &Config{
-		Port:        getEnvInt("PORT", 443),
+		Port:        getEnvInt("PORT", 8080),
 		DataDir:     getEnv("DATA_DIR", "./data"),
-		JWTSecret:   getEnv("JWT_SECRET", "change-me-in-production"),
-		TLSCert:     getEnv("TLS_CERT", "./certs/cert.pem"),
-		TLSKey:      getEnv("TLS_KEY", "./certs/key.pem"),
+		JWTSecret:   getEnv("JWT_SECRET", ""), // Empty = will be loaded from DB or generated
+		TLSCert:     getEnv("TLS_CERT", ""),
+		TLSKey:      getEnv("TLS_KEY", ""),
 		UsePAM:      getEnvBool("USE_PAM", true),
-		AdminGroups: getEnvList("ADMIN_GROUPS", []string{"wheel", "sudo", "admin", "root"}),
+		AdminGroups: getEnvList("ADMIN_GROUPS", []string{"sudo", "wheel", "admin", "root"}),
 	}
 
 	// Ensure data directory exists

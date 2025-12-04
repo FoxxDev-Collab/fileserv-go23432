@@ -66,6 +66,14 @@ type DataStore interface {
 	IncrementShareLinkDownload(id string) error
 	IncrementShareLinkView(id string) error
 	CleanExpiredShareLinks() error
+
+	// Settings operations
+	GetSetting(key string) (*models.Setting, error)
+	SetSetting(key, value, settingType, category string) error
+	GetSettingsByCategory(category string) []models.Setting
+	GetAllSettings() []models.Setting
+	DeleteSetting(key string) error
+	IsSetupComplete() bool
 }
 
 // Ensure both Store types implement DataStore

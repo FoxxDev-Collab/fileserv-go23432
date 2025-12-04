@@ -26,14 +26,17 @@ import {
   storageAPI,
   usersAPI,
   systemUsersAPI,
+  sharingServicesAPI,
   StoragePool,
   DirectoryEntry,
   ZoneSMBOptions,
   ZoneNFSOptions,
   ZoneWebOptions,
+  SharingServicesResponse,
 } from "@/lib/api";
 import { PageSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   FolderTree,
   ArrowLeft,
@@ -54,6 +57,7 @@ import {
   Server,
   Info,
   AlertCircle,
+  AlertTriangle,
 } from "lucide-react";
 
 interface FormData {
@@ -157,12 +161,21 @@ export default function CreateZonePage() {
   const [directories, setDirectories] = useState<DirectoryEntry[]>([]);
   const [browseLoading, setBrowseLoading] = useState(false);
 
+  // Sharing services status
+  const [sharingServices, setSharingServices] = useState<SharingServicesResponse | null>(null);
+
   // Input states for user/group adding
   const [newAllowedUser, setNewAllowedUser] = useState("");
   const [newAllowedGroup, setNewAllowedGroup] = useState("");
   const [newDenyUser, setNewDenyUser] = useState("");
   const [newDenyGroup, setNewDenyGroup] = useState("");
   const [newNFSHost, setNewNFSHost] = useState("");
+
+  // Samba password setup state
+  const [setupSambaPassword, setSetupSambaPassword] = useState(false);
+  const [sambaPasswordUser, setSambaPasswordUser] = useState("");
+  const [sambaPassword, setSambaPassword] = useState("");
+  const [sambaPasswordConfirm, setSambaPasswordConfirm] = useState("");
 
   const [formData, setFormData] = useState<FormData>({
     pool_id: "",
@@ -202,13 +215,15 @@ export default function CreateZonePage() {
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const [poolsData, internalUsersData, systemUsersData, groupsData] = await Promise.all([
+        const [poolsData, internalUsersData, systemUsersData, groupsData, servicesData] = await Promise.all([
           poolsAPI.list(),
           usersAPI.list(),
           systemUsersAPI.list(true), // Include system users (uid >= 1000)
           systemUsersAPI.listGroups(),
+          sharingServicesAPI.getStatus(),
         ]);
         setPools(poolsData || []);
+        setSharingServices(servicesData);
 
         // Combine internal users and system users (deduplicate by username)
         const internalUsernames = (internalUsersData || []).map(u => u.username);
@@ -347,6 +362,26 @@ export default function CreateZonePage() {
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
+      // Validate Samba password if setup is enabled
+      if (setupSambaPassword && formData.smb_enabled) {
+        if (!sambaPasswordUser) {
+          toast.error("Please select a user for Samba password setup");
+          setIsSubmitting(false);
+          return;
+        }
+        if (!sambaPassword) {
+          toast.error("Please enter a Samba password");
+          setIsSubmitting(false);
+          return;
+        }
+        if (sambaPassword !== sambaPasswordConfirm) {
+          toast.error("Samba passwords do not match");
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      // Create the zone
       await zonesAPI.create({
         pool_id: formData.pool_id,
         name: formData.name,
@@ -371,7 +406,20 @@ export default function CreateZonePage() {
         read_only: formData.read_only,
         browsable: formData.browsable,
       });
-      toast.success("Zone created successfully!");
+
+      // Set Samba password if requested
+      if (setupSambaPassword && formData.smb_enabled && sambaPasswordUser && sambaPassword) {
+        try {
+          await sharingServicesAPI.setSambaPassword(sambaPasswordUser, sambaPassword);
+          toast.success(`Zone created and Samba password set for ${sambaPasswordUser}`);
+        } catch (pwError) {
+          // Zone was created but password failed - warn the user
+          toast.warning(`Zone created, but failed to set Samba password: ${pwError}`);
+        }
+      } else {
+        toast.success("Zone created successfully!");
+      }
+
       router.push("/admin/storage/zones");
     } catch (error) {
       toast.error(`Failed to create zone: ${error}`);
@@ -860,6 +908,32 @@ export default function CreateZonePage() {
                 {/* Step 3: SMB Configuration */}
                 {currentStep === 2 && (
                   <div className="space-y-6">
+                    {/* Service status warning */}
+                    {sharingServices && !sharingServices.smb.installed && (
+                      <Alert variant="destructive">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>SMB Server Not Installed</AlertTitle>
+                        <AlertDescription>
+                          Samba is not installed on this server. SMB shares cannot be created until you{" "}
+                          <a href="/admin/storage/services" className="underline font-medium">
+                            install the SMB service
+                          </a>.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {sharingServices && sharingServices.smb.installed && !sharingServices.smb.running && (
+                      <Alert>
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>SMB Server Not Running</AlertTitle>
+                        <AlertDescription>
+                          Samba is installed but not running. SMB shares won&apos;t be accessible until you{" "}
+                          <a href="/admin/storage/services" className="underline font-medium">
+                            start the SMB service
+                          </a>.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
                     <div className="flex items-center justify-between pb-4 border-b">
                       <div>
                         <h3 className="text-lg font-medium flex items-center gap-2">
@@ -871,6 +945,7 @@ export default function CreateZonePage() {
                       <Switch
                         checked={formData.smb_enabled}
                         onCheckedChange={(checked) => setFormData(prev => ({ ...prev, smb_enabled: checked }))}
+                        disabled={sharingServices ? !sharingServices.smb.installed : false}
                       />
                     </div>
 
@@ -989,6 +1064,89 @@ export default function CreateZonePage() {
                             }))}
                           />
                         </div>
+
+                        {/* Samba Password Setup */}
+                        <div className="mt-6 pt-6 border-t space-y-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <Label className="text-base font-medium">Set Samba Password</Label>
+                              <p className="text-sm text-muted-foreground">
+                                Samba requires its own password database, separate from Linux
+                              </p>
+                            </div>
+                            <Switch
+                              checked={setupSambaPassword}
+                              onCheckedChange={setSetupSambaPassword}
+                            />
+                          </div>
+
+                          {setupSambaPassword && (
+                            <div className="space-y-4 p-4 bg-muted/50 rounded-lg">
+                              <Alert>
+                                <Info className="h-4 w-4" />
+                                <AlertTitle>Samba Authentication</AlertTitle>
+                                <AlertDescription>
+                                  Windows clients authenticate using Samba&apos;s password database, not Linux passwords.
+                                  Set a password here for the user who will access this share.
+                                </AlertDescription>
+                              </Alert>
+
+                              <div className="grid gap-2">
+                                <Label htmlFor="samba_user">Username</Label>
+                                <Select
+                                  value={sambaPasswordUser}
+                                  onValueChange={setSambaPasswordUser}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select user" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {formData.smb_options.force_user && (
+                                      <SelectItem value={formData.smb_options.force_user}>
+                                        {formData.smb_options.force_user} (Force User)
+                                      </SelectItem>
+                                    )}
+                                    {systemUsers
+                                      .filter(u => u !== formData.smb_options.force_user)
+                                      .map(u => (
+                                        <SelectItem key={u} value={u}>{u}</SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">
+                                  {formData.smb_options.force_user
+                                    ? `Recommended: Set password for "${formData.smb_options.force_user}" (your force user)`
+                                    : "Select the user who will access this share from Windows"}
+                                </p>
+                              </div>
+
+                              <div className="grid gap-2">
+                                <Label htmlFor="samba_password">Samba Password</Label>
+                                <Input
+                                  id="samba_password"
+                                  type="password"
+                                  placeholder="Enter Samba password"
+                                  value={sambaPassword}
+                                  onChange={(e) => setSambaPassword(e.target.value)}
+                                />
+                              </div>
+
+                              <div className="grid gap-2">
+                                <Label htmlFor="samba_password_confirm">Confirm Password</Label>
+                                <Input
+                                  id="samba_password_confirm"
+                                  type="password"
+                                  placeholder="Confirm Samba password"
+                                  value={sambaPasswordConfirm}
+                                  onChange={(e) => setSambaPasswordConfirm(e.target.value)}
+                                />
+                                {sambaPassword && sambaPasswordConfirm && sambaPassword !== sambaPasswordConfirm && (
+                                  <p className="text-xs text-destructive">Passwords do not match</p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -997,6 +1155,32 @@ export default function CreateZonePage() {
                 {/* Step 4: NFS Configuration */}
                 {currentStep === 3 && (
                   <div className="space-y-6">
+                    {/* Service status warning */}
+                    {sharingServices && !sharingServices.nfs.installed && (
+                      <Alert variant="destructive">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>NFS Server Not Installed</AlertTitle>
+                        <AlertDescription>
+                          NFS server is not installed on this system. NFS exports cannot be created until you{" "}
+                          <a href="/admin/storage/services" className="underline font-medium">
+                            install the NFS service
+                          </a>.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {sharingServices && sharingServices.nfs.installed && !sharingServices.nfs.running && (
+                      <Alert>
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>NFS Server Not Running</AlertTitle>
+                        <AlertDescription>
+                          NFS server is installed but not running. NFS exports won&apos;t be accessible until you{" "}
+                          <a href="/admin/storage/services" className="underline font-medium">
+                            start the NFS service
+                          </a>.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
                     <div className="flex items-center justify-between pb-4 border-b">
                       <div>
                         <h3 className="text-lg font-medium flex items-center gap-2">
@@ -1008,6 +1192,7 @@ export default function CreateZonePage() {
                       <Switch
                         checked={formData.nfs_enabled}
                         onCheckedChange={(checked) => setFormData(prev => ({ ...prev, nfs_enabled: checked }))}
+                        disabled={sharingServices ? !sharingServices.nfs.installed : false}
                       />
                     </div>
 

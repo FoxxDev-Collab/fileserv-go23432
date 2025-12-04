@@ -1,4 +1,4 @@
-.PHONY: build run clean install vendor test
+.PHONY: build run clean install vendor test bundle
 
 # Binary name
 BINARY=fileserv
@@ -57,3 +57,19 @@ dev:
 		echo "air not found. Install with: go install github.com/cosmtrek/air@latest"; \
 		go run main.go; \
 	fi
+
+# Create distribution bundle
+bundle: build
+	./bundle.sh
+
+# Create bundle with specific version
+bundle-release:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "Usage: make bundle-release VERSION=1.0.0"; \
+		exit 1; \
+	fi
+	./bundle.sh -v $(VERSION)
+
+# Create multi-architecture bundle
+bundle-all: build
+	./bundle.sh --all-arch

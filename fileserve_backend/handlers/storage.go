@@ -1304,6 +1304,59 @@ func CreatePartition() http.HandlerFunc {
 	}
 }
 
+// CreatePartitionTable creates a new partition table on a disk (GPT or MBR/msdos)
+func CreatePartitionTable() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Disk      string `json:"disk"`
+			TableType string `json:"table_type"` // "gpt" or "msdos"
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Validate disk path
+		if !strings.HasPrefix(req.Disk, "/dev/") {
+			http.Error(w, "Invalid disk path", http.StatusBadRequest)
+			return
+		}
+
+		// Validate table type
+		if req.TableType != "gpt" && req.TableType != "msdos" {
+			http.Error(w, "Invalid table type. Use 'gpt' or 'msdos'", http.StatusBadRequest)
+			return
+		}
+
+		// Check if disk has mounted partitions
+		mounts, _ := getMountPoints()
+		for _, m := range mounts {
+			if strings.HasPrefix(m.Device, req.Disk) {
+				http.Error(w, fmt.Sprintf("Disk has mounted partition: %s at %s", m.Device, m.MountPath), http.StatusBadRequest)
+				return
+			}
+		}
+
+		// Create partition table using parted
+		cmd := exec.Command("parted", "-s", req.Disk, "mklabel", req.TableType)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to create partition table: %s", string(output)), http.StatusInternalServerError)
+			return
+		}
+
+		// Inform kernel of partition changes
+		exec.Command("partprobe", req.Disk).Run()
+
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{
+			"message":    "Partition table created successfully",
+			"disk":       req.Disk,
+			"table_type": req.TableType,
+		})
+	}
+}
+
 // DeletePartition deletes a partition
 func DeletePartition() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

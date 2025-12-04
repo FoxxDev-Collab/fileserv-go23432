@@ -57,7 +57,21 @@ import {
   Thermometer,
   Zap,
   RotateCcw,
+  Play,
+  CircleStop,
+  Table2,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export default function DisksPage() {
   const router = useRouter();
@@ -69,6 +83,25 @@ export default function DisksPage() {
   const [formatDialog, setFormatDialog] = useState<{ open: boolean; partition?: Partition }>({ open: false });
   const [formatOptions, setFormatOptions] = useState({ fstype: "ext4", label: "", force: false });
   const [isFormatting, setIsFormatting] = useState(false);
+
+  // Initialize disk (create partition table) dialog
+  const [initDiskDialog, setInitDiskDialog] = useState<{ open: boolean; disk?: DiskInfo }>({ open: false });
+  const [initDiskOptions, setInitDiskOptions] = useState({ tableType: "gpt" as "gpt" | "msdos" });
+  const [isInitializing, setIsInitializing] = useState(false);
+
+  // Create partition dialog
+  const [createPartDialog, setCreatePartDialog] = useState<{ open: boolean; disk?: DiskInfo }>({ open: false });
+  const [createPartOptions, setCreatePartOptions] = useState({ start: "0%", end: "100%", fstype: "", label: "" });
+  const [isCreatingPart, setIsCreatingPart] = useState(false);
+
+  // Delete partition state
+  const [deletePartDialog, setDeletePartDialog] = useState<{ open: boolean; partition?: Partition }>({ open: false });
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Mount/unmount state
+  const [mountDialog, setMountDialog] = useState<{ open: boolean; partition?: Partition }>({ open: false });
+  const [mountOptions, setMountOptions] = useState({ mountPoint: "", persistent: false });
+  const [isMounting, setIsMounting] = useState(false);
 
   useEffect(() => {
     if (!authLoading) {
@@ -136,6 +169,96 @@ export default function DisksPage() {
       toast.error(`Failed to format partition: ${error}`);
     } finally {
       setIsFormatting(false);
+    }
+  };
+
+  const handleInitializeDisk = async () => {
+    if (!initDiskDialog.disk) return;
+
+    setIsInitializing(true);
+    try {
+      await storageAPI.createPartitionTable({
+        disk: initDiskDialog.disk.path,
+        table_type: initDiskOptions.tableType,
+      });
+      toast.success(`Disk initialized with ${initDiskOptions.tableType.toUpperCase()} partition table`);
+      setInitDiskDialog({ open: false });
+      fetchDisks();
+    } catch (error) {
+      toast.error(`Failed to initialize disk: ${error}`);
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
+  const handleCreatePartition = async () => {
+    if (!createPartDialog.disk) return;
+
+    setIsCreatingPart(true);
+    try {
+      await storageAPI.createPartition({
+        disk: createPartDialog.disk.path,
+        start: createPartOptions.start,
+        end: createPartOptions.end,
+        fstype: createPartOptions.fstype || undefined,
+        label: createPartOptions.label || undefined,
+      });
+      toast.success("Partition created successfully");
+      setCreatePartDialog({ open: false });
+      setCreatePartOptions({ start: "0%", end: "100%", fstype: "", label: "" });
+      fetchDisks();
+    } catch (error) {
+      toast.error(`Failed to create partition: ${error}`);
+    } finally {
+      setIsCreatingPart(false);
+    }
+  };
+
+  const handleDeletePartition = async () => {
+    if (!deletePartDialog.partition) return;
+
+    setIsDeleting(true);
+    try {
+      await storageAPI.deletePartition(deletePartDialog.partition.path);
+      toast.success("Partition deleted successfully");
+      setDeletePartDialog({ open: false });
+      fetchDisks();
+    } catch (error) {
+      toast.error(`Failed to delete partition: ${error}`);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleMount = async () => {
+    if (!mountDialog.partition) return;
+
+    setIsMounting(true);
+    try {
+      await storageAPI.mount({
+        device: mountDialog.partition.path,
+        mount_point: mountOptions.mountPoint,
+        fstype: mountDialog.partition.fstype,
+        persistent: mountOptions.persistent,
+      });
+      toast.success(`Mounted at ${mountOptions.mountPoint}`);
+      setMountDialog({ open: false });
+      setMountOptions({ mountPoint: "", persistent: false });
+      fetchDisks();
+    } catch (error) {
+      toast.error(`Failed to mount: ${error}`);
+    } finally {
+      setIsMounting(false);
+    }
+  };
+
+  const handleUnmount = async (partition: Partition) => {
+    try {
+      await storageAPI.unmount(partition.mountpoint, false);
+      toast.success("Unmounted successfully");
+      fetchDisks();
+    } catch (error) {
+      toast.error(`Failed to unmount: ${error}`);
     }
   };
 
@@ -339,7 +462,35 @@ export default function DisksPage() {
                           </div>
                         )}
 
-                        {/* Partitions Table */}
+                        {/* Partitions Section */}
+                        <div className="flex items-center justify-between mb-4">
+                          <h4 className="font-medium">Partitions</h4>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setInitDiskDialog({ open: true, disk });
+                                setInitDiskOptions({ tableType: "gpt" });
+                              }}
+                            >
+                              <Table2 className="h-4 w-4 mr-1" />
+                              New Table
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setCreatePartDialog({ open: true, disk });
+                                setCreatePartOptions({ start: "0%", end: "100%", fstype: "", label: "" });
+                              }}
+                            >
+                              <Plus className="h-4 w-4 mr-1" />
+                              Create Partition
+                            </Button>
+                          </div>
+                        </div>
+
                         {disk.partitions.length > 0 ? (
                           <Table>
                             <TableHeader>
@@ -382,6 +533,31 @@ export default function DisksPage() {
                                   </TableCell>
                                   <TableCell className="text-right">
                                     <div className="flex justify-end gap-2">
+                                      {/* Mount/Unmount buttons */}
+                                      {partition.mounted ? (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => handleUnmount(partition)}
+                                        >
+                                          <CircleStop className="h-4 w-4 mr-1" />
+                                          Unmount
+                                        </Button>
+                                      ) : partition.fstype ? (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            setMountDialog({ open: true, partition });
+                                            setMountOptions({ mountPoint: `/mnt/${partition.name}`, persistent: false });
+                                          }}
+                                        >
+                                          <Play className="h-4 w-4 mr-1" />
+                                          Mount
+                                        </Button>
+                                      ) : null}
+
+                                      {/* Format button (only if not mounted) */}
                                       {!partition.mounted && (
                                         <Button
                                           variant="outline"
@@ -395,6 +571,18 @@ export default function DisksPage() {
                                           Format
                                         </Button>
                                       )}
+
+                                      {/* Delete button (only if not mounted) */}
+                                      {!partition.mounted && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                          onClick={() => setDeletePartDialog({ open: true, partition })}
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      )}
                                     </div>
                                   </TableCell>
                                 </TableRow>
@@ -406,6 +594,17 @@ export default function DisksPage() {
                             <HardDrive className="h-12 w-12 mx-auto mb-2 opacity-50" />
                             <p>No partitions found on this disk</p>
                             <p className="text-sm">This disk appears to be unpartitioned</p>
+                            <Button
+                              variant="outline"
+                              className="mt-4"
+                              onClick={() => {
+                                setInitDiskDialog({ open: true, disk });
+                                setInitDiskOptions({ tableType: "gpt" });
+                              }}
+                            >
+                              <Table2 className="h-4 w-4 mr-2" />
+                              Initialize Disk
+                            </Button>
                           </div>
                         )}
                       </CardContent>
@@ -483,6 +682,199 @@ export default function DisksPage() {
             </Button>
             <Button variant="destructive" onClick={handleFormat} disabled={isFormatting}>
               {isFormatting ? "Formatting..." : "Format Partition"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Initialize Disk Dialog */}
+      <Dialog open={initDiskDialog.open} onOpenChange={(open) => setInitDiskDialog({ ...initDiskDialog, open })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Initialize Disk</DialogTitle>
+            <DialogDescription>
+              Create a new partition table on {initDiskDialog.disk?.path}.
+              <span className="text-red-500 block mt-2">
+                Warning: This will erase all existing partitions and data!
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Partition Table Type</Label>
+              <Select
+                value={initDiskOptions.tableType}
+                onValueChange={(value: "gpt" | "msdos") => setInitDiskOptions({ tableType: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="gpt">GPT (Recommended for disks &gt; 2TB)</SelectItem>
+                  <SelectItem value="msdos">MBR/MS-DOS (Legacy, max 2TB)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="p-3 bg-muted rounded-lg text-sm">
+              <p><strong>GPT</strong>: Modern partition table, supports large disks, more partitions.</p>
+              <p className="mt-1"><strong>MBR</strong>: Legacy format, required for older systems and BIOS boot.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInitDiskDialog({ open: false })}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleInitializeDisk} disabled={isInitializing}>
+              {isInitializing ? "Initializing..." : "Initialize Disk"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Partition Dialog */}
+      <Dialog open={createPartDialog.open} onOpenChange={(open) => setCreatePartDialog({ ...createPartDialog, open })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Partition</DialogTitle>
+            <DialogDescription>
+              Create a new partition on {createPartDialog.disk?.path} ({createPartDialog.disk?.size_human}).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* Quick fill button */}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setCreatePartOptions({ ...createPartOptions, start: "0%", end: "100%" })}
+              >
+                Use Entire Disk
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setCreatePartOptions({ ...createPartOptions, start: "0%", end: "50%" })}
+              >
+                First Half
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setCreatePartOptions({ ...createPartOptions, start: "50%", end: "100%" })}
+              >
+                Second Half
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Start Position</Label>
+                <Input
+                  value={createPartOptions.start}
+                  onChange={(e) => setCreatePartOptions({ ...createPartOptions, start: e.target.value })}
+                  placeholder="0%"
+                />
+                <p className="text-xs text-muted-foreground">Where partition begins (0% = start of disk)</p>
+              </div>
+              <div className="space-y-2">
+                <Label>End Position</Label>
+                <Input
+                  value={createPartOptions.end}
+                  onChange={(e) => setCreatePartOptions({ ...createPartOptions, end: e.target.value })}
+                  placeholder="100%"
+                />
+                <p className="text-xs text-muted-foreground">Where partition ends (100% = end of disk)</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg text-sm text-blue-800 dark:text-blue-200">
+              <strong>Tip:</strong> For a single partition using the whole disk, use Start: 0% and End: 100%
+            </div>
+
+            <div className="space-y-2">
+              <Label>Volume Label (optional)</Label>
+              <Input
+                value={createPartOptions.label}
+                onChange={(e) => setCreatePartOptions({ ...createPartOptions, label: e.target.value })}
+                placeholder="e.g., DATA"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreatePartDialog({ open: false })}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreatePartition} disabled={isCreatingPart}>
+              {isCreatingPart ? "Creating..." : "Create Partition"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Partition Confirmation */}
+      <AlertDialog open={deletePartDialog.open} onOpenChange={(open) => setDeletePartDialog({ ...deletePartDialog, open })}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Partition</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {deletePartDialog.partition?.path}?
+              <span className="text-red-500 block mt-2">
+                This action cannot be undone and all data will be lost!
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeletePartition}
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isDeleting ? "Deleting..." : "Delete Partition"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Mount Dialog */}
+      <Dialog open={mountDialog.open} onOpenChange={(open) => setMountDialog({ ...mountDialog, open })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mount Partition</DialogTitle>
+            <DialogDescription>
+              Mount {mountDialog.partition?.path} ({mountDialog.partition?.fstype}) to a directory.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Mount Point</Label>
+              <Input
+                value={mountOptions.mountPoint}
+                onChange={(e) => setMountOptions({ ...mountOptions, mountPoint: e.target.value })}
+                placeholder="/mnt/data"
+              />
+              <p className="text-xs text-muted-foreground">Directory will be created if it does not exist</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="persistent"
+                checked={mountOptions.persistent}
+                onCheckedChange={(checked) => setMountOptions({ ...mountOptions, persistent: checked as boolean })}
+              />
+              <Label htmlFor="persistent" className="cursor-pointer">
+                Make persistent (add to /etc/fstab)
+              </Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMountDialog({ open: false })}>
+              Cancel
+            </Button>
+            <Button onClick={handleMount} disabled={isMounting || !mountOptions.mountPoint}>
+              {isMounting ? "Mounting..." : "Mount"}
             </Button>
           </DialogFooter>
         </DialogContent>

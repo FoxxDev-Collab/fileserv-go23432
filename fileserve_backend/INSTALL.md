@@ -130,7 +130,7 @@ LOG_LEVEL=info
 2. **Use HTTPS** in production (put behind nginx/traefik/caddy)
 3. **Restrict file permissions** on the data directory
 4. **Enable firewall** rules to limit access
-5. **Admin access** - Only root and wheel group users have admin access
+5. **Admin access** - Members of sudo (Ubuntu/Debian), wheel (RHEL/CentOS), admin, or root groups have admin access. Customize with `ADMIN_GROUPS` env var.
 
 ## Using with Nginx (Reverse Proxy)
 

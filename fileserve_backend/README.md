@@ -52,7 +52,7 @@ sudo systemctl start fileserv
 
 ## Authentication
 
-FileServ uses PAM authentication with system users. Only root and wheel group members have admin access.
+FileServ uses PAM authentication with system users. Members of sudo (Ubuntu/Debian), wheel (RHEL/CentOS), admin, or root groups have admin access.
 
 ## API Endpoints
 

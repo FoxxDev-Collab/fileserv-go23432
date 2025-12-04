@@ -168,6 +168,15 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_share_zones_pool_id ON share_zones(pool_id);
 	CREATE INDEX IF NOT EXISTS idx_share_zones_zone_type ON share_zones(zone_type);
 
+	-- Settings table (key-value configuration)
+	CREATE TABLE IF NOT EXISTS settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		type TEXT NOT NULL DEFAULT 'string',
+		category TEXT NOT NULL DEFAULT 'general',
+		updated_at DATETIME NOT NULL
+	);
+
 	-- Share links table (web sharing)
 	CREATE TABLE IF NOT EXISTS share_links (
 		id TEXT PRIMARY KEY,
@@ -1491,6 +1500,93 @@ func (s *SQLiteStore) IncrementShareLinkView(id string) error {
 func (s *SQLiteStore) CleanExpiredShareLinks() error {
 	_, err := s.db.Exec("DELETE FROM share_links WHERE expires_at IS NOT NULL AND expires_at < ?", time.Now())
 	return err
+}
+
+// ============================================================================
+// Settings Operations
+// ============================================================================
+
+func (s *SQLiteStore) GetSetting(key string) (*models.Setting, error) {
+	var setting models.Setting
+	err := s.db.QueryRow(`
+		SELECT key, value, type, category, updated_at
+		FROM settings WHERE key = ?`, key).
+		Scan(&setting.Key, &setting.Value, &setting.Type, &setting.Category, &setting.UpdatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // Return nil, nil for missing settings (not an error)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &setting, nil
+}
+
+func (s *SQLiteStore) SetSetting(key, value, settingType, category string) error {
+	now := time.Now()
+	_, err := s.db.Exec(`
+		INSERT INTO settings (key, value, type, category, updated_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(key) DO UPDATE SET value=?, type=?, category=?, updated_at=?`,
+		key, value, settingType, category, now,
+		value, settingType, category, now)
+	return err
+}
+
+func (s *SQLiteStore) GetSettingsByCategory(category string) []models.Setting {
+	rows, err := s.db.Query(`
+		SELECT key, value, type, category, updated_at
+		FROM settings WHERE category = ? ORDER BY key`, category)
+	if err != nil {
+		return []models.Setting{}
+	}
+	defer rows.Close()
+
+	var settings []models.Setting
+	for rows.Next() {
+		var setting models.Setting
+		if err := rows.Scan(&setting.Key, &setting.Value, &setting.Type, &setting.Category, &setting.UpdatedAt); err != nil {
+			continue
+		}
+		settings = append(settings, setting)
+	}
+
+	return settings
+}
+
+func (s *SQLiteStore) GetAllSettings() []models.Setting {
+	rows, err := s.db.Query(`
+		SELECT key, value, type, category, updated_at
+		FROM settings ORDER BY category, key`)
+	if err != nil {
+		return []models.Setting{}
+	}
+	defer rows.Close()
+
+	var settings []models.Setting
+	for rows.Next() {
+		var setting models.Setting
+		if err := rows.Scan(&setting.Key, &setting.Value, &setting.Type, &setting.Category, &setting.UpdatedAt); err != nil {
+			continue
+		}
+		settings = append(settings, setting)
+	}
+
+	return settings
+}
+
+func (s *SQLiteStore) DeleteSetting(key string) error {
+	_, err := s.db.Exec("DELETE FROM settings WHERE key = ?", key)
+	return err
+}
+
+func (s *SQLiteStore) IsSetupComplete() bool {
+	setting, err := s.GetSetting(models.SettingSetupComplete)
+	if err != nil || setting == nil {
+		return false
+	}
+	return setting.Value == "true"
 }
 
 // ============================================================================

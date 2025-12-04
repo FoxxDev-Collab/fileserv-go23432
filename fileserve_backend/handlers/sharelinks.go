@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	osuser "os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -719,6 +721,20 @@ func (h *PublicHandler) UploadToPublicShare(w http.ResponseWriter, r *http.Reque
 	if _, err := io.Copy(dst, file); err != nil {
 		http.Error(w, "Failed to save file", http.StatusInternalServerError)
 		return
+	}
+
+	// Set ownership to the share link owner
+	if link.OwnerID != "" {
+		// Look up the owner user to get their username
+		if owner, err := h.store.GetUserByID(link.OwnerID); err == nil && owner != nil {
+			if u, err := osuser.Lookup(owner.Username); err == nil {
+				uid, _ := strconv.Atoi(u.Uid)
+				gid, _ := strconv.Atoi(u.Gid)
+				os.Chown(targetPath, uid, gid)
+				// Also chown any newly created directories
+				os.Chown(targetDir, uid, gid)
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

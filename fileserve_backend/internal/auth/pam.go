@@ -9,7 +9,8 @@ import (
 )
 
 // AdminGroups defines which system groups grant admin privileges
-var AdminGroups = []string{"wheel", "sudo", "admin", "root"}
+// sudo is first for Ubuntu/Debian compatibility, wheel for RHEL/CentOS
+var AdminGroups = []string{"sudo", "wheel", "admin", "root"}
 
 // PAMUser represents an authenticated system user
 type PAMUser struct {

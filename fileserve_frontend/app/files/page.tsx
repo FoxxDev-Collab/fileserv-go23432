@@ -69,9 +69,8 @@ import {
   EyeOff,
 } from "lucide-react";
 import { toast } from "sonner";
-import { zoneFilesAPI, UserZoneInfo, FileInfo, ListOptions } from "@/lib/api";
+import { zoneFilesAPI, UserZoneInfo, FileInfo } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { ShareDialog } from "@/components/share-dialog";
 import { MoveDialog } from "@/components/files/move-dialog";
 import { FilesSkeleton } from "@/components/skeletons";
 import { useUploadComplete } from "@/lib/hooks/use-upload";
@@ -324,8 +323,6 @@ export default function FilesPage() {
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [fileToRename, setFileToRename] = useState<FileItem | null>(null);
   const [newFileName, setNewFileName] = useState("");
-  const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [fileToShare, setFileToShare] = useState<FileItem | null>(null);
 
   // Selection and bulk operation states
   const [selectedFiles, setSelectedFiles] = useState<FileItem[]>([]);
@@ -616,11 +613,6 @@ export default function FilesPage() {
     }
   };
 
-  const handleShareClick = (file: FileItem) => {
-    setFileToShare(file);
-    setShareDialogOpen(true);
-  };
-
   // Handle selection changes
   const handleSelectionChange = useCallback((selected: FileItem[]) => {
     setSelectedFiles(selected);
@@ -895,7 +887,6 @@ export default function FilesPage() {
                             onDelete={handleDeleteClick}
                             onDownload={handleDownload}
                             onRename={handleRenameClick}
-                            onShare={selectedZone.can_share ? handleShareClick : undefined}
                             showSelection={true}
                             onSelectionChange={handleSelectionChange}
                             columns={columns}
@@ -1028,17 +1019,6 @@ export default function FilesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Share Dialog */}
-      {fileToShare && selectedZone && (
-        <ShareDialog
-          open={shareDialogOpen}
-          onOpenChange={setShareDialogOpen}
-          targetPath={`${selectedZone.full_path}${fileToShare.path}`}
-          isFolder={fileToShare.type === "folder"}
-          targetName={fileToShare.name}
-        />
-      )}
 
       {/* Bulk Delete Confirmation Dialog */}
       <AlertDialog open={bulkDeleteDialogOpen} onOpenChange={setBulkDeleteDialogOpen}>

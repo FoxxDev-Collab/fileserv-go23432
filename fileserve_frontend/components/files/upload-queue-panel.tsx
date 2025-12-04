@@ -206,7 +206,7 @@ function UploadItemRow({ item, onPause, onResume, onCancel, onRetry, onRemove }:
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+              className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-500/20"
               onClick={() => onCancel(item.id)}
               title="Cancel"
             >
@@ -284,6 +284,22 @@ export function UploadQueuePanel() {
         </div>
 
         <div className="flex items-center gap-1">
+          {/* Clear completed button - always visible when there are completed/failed items */}
+          {(completedItems.length > 0 || failedItems.length > 0) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                clearCompleted();
+              }}
+              title="Clear completed and failed uploads"
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              Clear
+            </Button>
+          )}
           {!isMinimized && (
             <Button
               variant="ghost"
@@ -391,21 +407,6 @@ export function UploadQueuePanel() {
               ))}
             </div>
           </ScrollArea>
-
-          {/* Footer with clear button */}
-          {(completedItems.length > 0 || failedItems.length > 0) && (
-            <div className="px-3 py-2 border-t bg-muted/30">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full text-xs"
-                onClick={clearCompleted}
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                Clear completed
-              </Button>
-            </div>
-          )}
         </>
       )}
     </div>

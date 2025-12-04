@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	osuser "os/user"
 	"path/filepath"
+	"strconv"
 
 	"fileserv/config"
 	"fileserv/internal/fileops"
@@ -174,6 +176,17 @@ func UploadFile(store storage.DataStore, cfg *config.Config) http.HandlerFunc {
 		if err := fileops.SaveFile(cfg.DataDir, filePath, file); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+
+		// Set file ownership
+		fullPath := filepath.Join(cfg.DataDir, filePath)
+		if userCtx.Username != "" {
+			if u, err := osuser.Lookup(userCtx.Username); err == nil {
+				uid, _ := strconv.Atoi(u.Uid)
+				gid, _ := strconv.Atoi(u.Gid)
+				os.Chmod(fullPath, 0644)
+				os.Chown(fullPath, uid, gid)
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")

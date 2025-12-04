@@ -9,6 +9,7 @@ import (
 	osuser "os/user"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -542,6 +543,35 @@ func sortFiles(files []FileInfo, sortBy string, desc bool) {
 // Directory Operations
 // ========================================================================
 
+// SetPathOwnership sets ownership of a path to the specified system username
+// This should be called after creating files or directories
+func SetPathOwnership(path, username string) error {
+	if username == "" {
+		return nil
+	}
+
+	u, err := osuser.Lookup(username)
+	if err != nil {
+		return fmt.Errorf("failed to lookup user %s: %w", username, err)
+	}
+
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return fmt.Errorf("failed to parse UID: %w", err)
+	}
+
+	gid, err := strconv.Atoi(u.Gid)
+	if err != nil {
+		return fmt.Errorf("failed to parse GID: %w", err)
+	}
+
+	if err := os.Chown(path, uid, gid); err != nil {
+		return fmt.Errorf("failed to chown %s: %w", path, err)
+	}
+
+	return nil
+}
+
 // CreateDirectory creates a new directory
 func CreateDirectory(basePath, requestedPath string) error {
 	fullPath, err := ValidatePath(basePath, requestedPath)
@@ -550,6 +580,46 @@ func CreateDirectory(basePath, requestedPath string) error {
 	}
 
 	return os.MkdirAll(fullPath, 0755)
+}
+
+// CreateDirectoryWithOwnership creates a new directory and sets ownership to the specified user
+func CreateDirectoryWithOwnership(basePath, requestedPath, username string) error {
+	fullPath, err := ValidatePath(basePath, requestedPath)
+	if err != nil {
+		return err
+	}
+
+	// Find the first directory that needs to be created
+	// so we can set ownership on all new directories
+	var dirsToCreate []string
+	checkPath := fullPath
+	for {
+		if _, err := os.Stat(checkPath); err == nil {
+			break // This directory exists
+		}
+		dirsToCreate = append([]string{checkPath}, dirsToCreate...)
+		parent := filepath.Dir(checkPath)
+		if parent == checkPath {
+			break
+		}
+		checkPath = parent
+	}
+
+	// Create the directory structure
+	if err := os.MkdirAll(fullPath, 0755); err != nil {
+		return err
+	}
+
+	// Set ownership on all newly created directories
+	if username != "" {
+		for _, dir := range dirsToCreate {
+			if err := SetPathOwnership(dir, username); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // DeletePath removes a file or directory

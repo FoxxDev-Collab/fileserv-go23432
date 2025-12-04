@@ -35,7 +35,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-accent/50">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
       <div className="w-full max-w-md">
         {/* Login Card */}
         <div className="bg-background border rounded-lg shadow-lg p-8 space-y-6">
@@ -86,20 +86,16 @@ export default function LoginPage() {
             </div>
 
             {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full px-4 py-2 bg-primary text-primary-foreground rounded-md font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? "Signing in..." : "Sign In"}
-            </button>
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full px-4 py-2 bg-primary text-primary-foreground rounded-md font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? "Signing in..." : "Sign In"}
+              </button>
+            </div>
           </form>
-
-          {/* Default credentials hint */}
-          <div className="text-center text-sm text-muted-foreground">
-            <p>Default admin credentials:</p>
-            <p className="font-mono text-xs mt-1">admin / admin</p>
-          </div>
         </div>
 
         {/* Back to Home */}

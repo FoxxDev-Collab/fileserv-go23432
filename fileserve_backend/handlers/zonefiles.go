@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	osuser "os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -72,6 +73,12 @@ func (h *ZoneFileHandler) GetUserZones(w http.ResponseWriter, r *http.Request) {
 				if err := os.MkdirAll(fullPath, 0755); err != nil {
 					// Log error but continue
 					continue
+				}
+				// Set ownership of the auto-provisioned directory
+				if u, err := osuser.Lookup(user.Username); err == nil {
+					uid, _ := strconv.Atoi(u.Uid)
+					gid, _ := strconv.Atoi(u.Gid)
+					os.Chown(fullPath, uid, gid)
 				}
 			}
 		}
@@ -391,6 +398,16 @@ func (h *ZoneFileHandler) UploadZoneFile(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Set file permissions and ownership
+	if userCtx.Username != "" {
+		if u, err := osuser.Lookup(userCtx.Username); err == nil {
+			uid, _ := strconv.Atoi(u.Uid)
+			gid, _ := strconv.Atoi(u.Gid)
+			os.Chmod(finalPath, 0644)
+			os.Chown(finalPath, uid, gid)
+		}
+	}
+
 	// Calculate the actual relative path of the uploaded file
 	// targetPath is what was requested, but file may have been saved inside it
 	actualPath := targetPath
@@ -549,9 +566,33 @@ func (h *ZoneFileHandler) CreateZoneFolder(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Find the first directory that needs to be created so we can set ownership
+	var dirsToCreate []string
+	checkPath := fullPath
+	for {
+		if _, err := os.Stat(checkPath); err == nil {
+			break // This directory exists
+		}
+		dirsToCreate = append([]string{checkPath}, dirsToCreate...)
+		parent := filepath.Dir(checkPath)
+		if parent == checkPath {
+			break
+		}
+		checkPath = parent
+	}
+
 	if err := os.MkdirAll(fullPath, 0755); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	// Set ownership on all newly created directories
+	for _, dir := range dirsToCreate {
+		if u, err := osuser.Lookup(userCtx.Username); err == nil {
+			uid, _ := strconv.Atoi(u.Uid)
+			gid, _ := strconv.Atoi(u.Gid)
+			os.Chown(dir, uid, gid)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

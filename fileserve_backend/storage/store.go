@@ -1127,3 +1127,34 @@ func (s *Store) CleanExpiredShareLinks() error {
 
 	return s.save()
 }
+
+// ============================================================================
+// Settings Operations (stub implementation for JSON store - use SQLite for production)
+// ============================================================================
+
+func (s *Store) GetSetting(key string) (*models.Setting, error) {
+	// JSON store doesn't persist settings - return nil
+	return nil, nil
+}
+
+func (s *Store) SetSetting(key, value, settingType, category string) error {
+	// JSON store doesn't persist settings
+	return nil
+}
+
+func (s *Store) GetSettingsByCategory(category string) []models.Setting {
+	return []models.Setting{}
+}
+
+func (s *Store) GetAllSettings() []models.Setting {
+	return []models.Setting{}
+}
+
+func (s *Store) DeleteSetting(key string) error {
+	return nil
+}
+
+func (s *Store) IsSetupComplete() bool {
+	// JSON store is considered legacy - always return false to force SQLite migration
+	return false
+}

@@ -16,7 +16,19 @@
       "Bash(GOFLAGS=\"-mod=mod\" go build:*)",
       "Bash(/home/foxx-fs/.local/go/bin/go list:*)",
       "Bash(npm install:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(chmod:*)",
+      "Bash(systemctl status:*)",
+      "Bash(smbstatus:*)",
+      "Bash(ss:*)",
+      "Bash(netstat:*)",
+      "Bash(rpm:*)",
+      "Bash(dpkg:*)",
+      "Bash(sudo systemctl:*)",
+      "Bash(sudo smbstatus:*)",
+      "Bash(curl:*)",
+      "Bash(echo:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

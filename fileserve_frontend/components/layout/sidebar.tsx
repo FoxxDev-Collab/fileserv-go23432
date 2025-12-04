@@ -11,16 +11,15 @@ import {
   Shield,
   Settings,
   LayoutDashboard,
-  Share2,
   HardDrive,
   Database,
   Layers,
   Gauge,
   Server,
-  Link2,
   Container,
   FolderTree,
   HelpCircle,
+  Share2,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 
@@ -48,11 +47,6 @@ const navSections: NavSection[] = [
         title: "Files",
         href: "/files",
         icon: FolderOpen,
-      },
-      {
-        title: "My Shares",
-        href: "/shares",
-        icon: Link2,
       },
     ],
   },
@@ -98,6 +92,18 @@ const navSections: NavSection[] = [
         title: "Zones",
         href: "/admin/storage/zones",
         icon: FolderTree,
+        adminOnly: true,
+      },
+      {
+        title: "Services",
+        href: "/admin/storage/services",
+        icon: Share2,
+        adminOnly: true,
+      },
+      {
+        title: "ZFS",
+        href: "/admin/storage/zfs",
+        icon: Database,
         adminOnly: true,
       },
       {

@@ -45,7 +45,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
-import { storageAPI, VolumeGroup, RAIDArray, ZFSPool } from "@/lib/api";
+import { storageAPI, VolumeGroup, RAIDArray } from "@/lib/api";
 import { PageSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import {
@@ -69,7 +69,6 @@ export default function VolumesPage() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [volumeGroups, setVolumeGroups] = useState<VolumeGroup[]>([]);
   const [raidArrays, setRaidArrays] = useState<RAIDArray[]>([]);
-  const [zfsPools, setZfsPools] = useState<ZFSPool[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [createLVDialog, setCreateLVDialog] = useState<{ open: boolean; vgName?: string }>({ open: false });
@@ -89,17 +88,19 @@ export default function VolumesPage() {
 
   const fetchData = async () => {
     try {
-      const [vgs, raids, zfs] = await Promise.all([
+      const [vgs, raids] = await Promise.all([
         storageAPI.getVolumeGroups(),
         storageAPI.getRAIDArrays(),
-        storageAPI.getZFSPools(),
       ]);
-      setVolumeGroups(vgs);
-      setRaidArrays(raids);
-      setZfsPools(zfs);
+      // Ensure we always have arrays, not null
+      setVolumeGroups(vgs || []);
+      setRaidArrays(raids || []);
     } catch (error) {
       console.error("Failed to fetch volume data:", error);
       toast.error("Failed to fetch volume information");
+      // Set empty arrays on error
+      setVolumeGroups([]);
+      setRaidArrays([]);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -170,19 +171,6 @@ export default function VolumesPage() {
     }
   };
 
-  const getZfsHealthBadge = (health: string) => {
-    switch (health) {
-      case "ONLINE":
-        return <Badge className="bg-green-500">Online</Badge>;
-      case "DEGRADED":
-        return <Badge variant="destructive">Degraded</Badge>;
-      case "FAULTED":
-        return <Badge variant="destructive">Faulted</Badge>;
-      default:
-        return <Badge variant="secondary">{health}</Badge>;
-    }
-  };
-
   // Show skeleton during initial auth check (only if no cached user)
   if (authLoading && !user) {
     return <PageSkeleton title="Volume Management" />;
@@ -200,7 +188,6 @@ export default function VolumesPage() {
 
   const hasLVM = volumeGroups.length > 0;
   const hasRAID = raidArrays.length > 0;
-  const hasZFS = zfsPools.length > 0;
 
   return (
     <div className="flex h-screen">
@@ -213,7 +200,7 @@ export default function VolumesPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-bold">Volume Management</h2>
-                <p className="text-muted-foreground">Manage LVM, RAID, and ZFS storage</p>
+                <p className="text-muted-foreground">Manage LVM and RAID storage</p>
               </div>
               <Button onClick={handleRefresh} disabled={isRefreshing} variant="outline">
                 <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
@@ -222,7 +209,7 @@ export default function VolumesPage() {
             </div>
 
             {/* Summary */}
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -251,24 +238,10 @@ export default function VolumesPage() {
                   </p>
                 </CardContent>
               </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium flex items-center gap-2">
-                    <Database className="h-4 w-4" />
-                    ZFS Pools
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{zfsPools.length}</div>
-                  <p className="text-xs text-muted-foreground">
-                    {zfsPools.filter(p => p.health === "ONLINE").length} online
-                  </p>
-                </CardContent>
-              </Card>
             </div>
 
             {/* Tabs for different volume types */}
-            <Tabs defaultValue={hasLVM ? "lvm" : hasRAID ? "raid" : "zfs"}>
+            <Tabs defaultValue={hasLVM ? "lvm" : "raid"}>
               <TabsList>
                 <TabsTrigger value="lvm" className="gap-2">
                   <Layers className="h-4 w-4" />
@@ -277,10 +250,6 @@ export default function VolumesPage() {
                 <TabsTrigger value="raid" className="gap-2">
                   <Shield className="h-4 w-4" />
                   RAID ({raidArrays.length})
-                </TabsTrigger>
-                <TabsTrigger value="zfs" className="gap-2">
-                  <Database className="h-4 w-4" />
-                  ZFS ({zfsPools.length})
                 </TabsTrigger>
               </TabsList>
 
@@ -320,7 +289,7 @@ export default function VolumesPage() {
                           <Progress value={((vg.size - vg.free) / vg.size) * 100} />
                         </div>
 
-                        {vg.logical_volumes.length > 0 ? (
+                        {(vg.logical_volumes?.length || 0) > 0 ? (
                           <Table>
                             <TableHeader>
                               <TableRow>
@@ -332,7 +301,7 @@ export default function VolumesPage() {
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {vg.logical_volumes.map((lv) => (
+                              {(vg.logical_volumes || []).map((lv) => (
                                 <TableRow key={lv.name}>
                                   <TableCell className="font-mono">{lv.path}</TableCell>
                                   <TableCell>{lv.size_human}</TableCell>
@@ -429,7 +398,7 @@ export default function VolumesPage() {
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {raid.members.map((member, index) => (
+                            {(raid.members || []).map((member, index) => (
                               <TableRow key={index}>
                                 <TableCell className="font-mono">{member.device}</TableCell>
                                 <TableCell>
@@ -463,102 +432,6 @@ export default function VolumesPage() {
                       <h3 className="text-lg font-medium">No RAID Arrays</h3>
                       <p className="text-muted-foreground">
                         No software RAID arrays configured on this system
-                      </p>
-                    </CardContent>
-                  </Card>
-                )}
-              </TabsContent>
-
-              {/* ZFS Tab */}
-              <TabsContent value="zfs" className="space-y-4">
-                {zfsPools.length > 0 ? (
-                  zfsPools.map((pool) => (
-                    <Card key={pool.name}>
-                      <CardHeader>
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <CardTitle className="flex items-center gap-2">
-                              <Database className="h-5 w-5" />
-                              {pool.name}
-                              {getZfsHealthBadge(pool.health)}
-                            </CardTitle>
-                            <CardDescription>
-                              {pool.size_human} total • {pool.free_human} free •{" "}
-                              {pool.fragmentation}% fragmentation
-                            </CardDescription>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="mb-4">
-                          <div className="flex justify-between text-sm mb-1">
-                            <span>Capacity</span>
-                            <span>{pool.capacity}%</span>
-                          </div>
-                          <Progress value={pool.capacity} />
-                        </div>
-
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 text-sm">
-                          <div>
-                            <span className="text-muted-foreground">Dedup Ratio:</span>{" "}
-                            {pool.dedup_ratio.toFixed(2)}x
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Fragmentation:</span>{" "}
-                            {pool.fragmentation}%
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">VDevs:</span>{" "}
-                            {pool.vdevs.length}
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Datasets:</span>{" "}
-                            {pool.datasets?.length || 0}
-                          </div>
-                        </div>
-
-                        {pool.datasets && pool.datasets.length > 0 && (
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Dataset</TableHead>
-                                <TableHead>Type</TableHead>
-                                <TableHead>Used</TableHead>
-                                <TableHead>Available</TableHead>
-                                <TableHead>Compression</TableHead>
-                                <TableHead>Mount Point</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {pool.datasets.slice(0, 10).map((dataset) => (
-                                <TableRow key={dataset.name}>
-                                  <TableCell className="font-mono text-sm">{dataset.name}</TableCell>
-                                  <TableCell>
-                                    <Badge variant="outline">{dataset.type}</Badge>
-                                  </TableCell>
-                                  <TableCell>{dataset.used_human}</TableCell>
-                                  <TableCell>{dataset.available_human}</TableCell>
-                                  <TableCell>
-                                    {dataset.compression} ({dataset.compress_ratio.toFixed(2)}x)
-                                  </TableCell>
-                                  <TableCell>
-                                    {dataset.mountpoint || <span className="text-muted-foreground">-</span>}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ))
-                ) : (
-                  <Card>
-                    <CardContent className="py-12 text-center">
-                      <Database className="h-16 w-16 mx-auto mb-4 text-muted-foreground opacity-50" />
-                      <h3 className="text-lg font-medium">No ZFS Pools</h3>
-                      <p className="text-muted-foreground">
-                        ZFS is not configured on this system
                       </p>
                     </CardContent>
                   </Card>
