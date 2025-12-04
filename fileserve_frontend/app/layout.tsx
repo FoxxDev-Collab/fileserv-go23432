@@ -42,7 +42,7 @@ export default function RootLayout({
             <AuthProvider>
               {children}
               <UploadQueueWrapper />
-              <Toaster />
+              <Toaster position="top-right" />
             </AuthProvider>
           </Providers>
         </ThemeProvider>

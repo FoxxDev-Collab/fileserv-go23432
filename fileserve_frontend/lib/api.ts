@@ -4,6 +4,16 @@
 
 const API_BASE = '/api';
 
+// Custom error class that includes HTTP status
+export class APIError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+    this.name = 'APIError';
+  }
+}
+
 // Store token in memory (also persisted to localStorage)
 let authToken: string | null = null;
 
@@ -19,22 +29,33 @@ function normalizePath(path: string): string {
 }
 
 export function setAuthToken(token: string | null) {
+  console.log('[Token] setAuthToken called with:', token ? 'token present' : 'null');
   authToken = token;
   if (token) {
     localStorage.setItem('auth_token', token);
+    console.log('[Token] Token saved to localStorage');
+    // Verify it was saved
+    const saved = localStorage.getItem('auth_token');
+    console.log('[Token] Verify localStorage has token:', !!saved);
   } else {
     localStorage.removeItem('auth_token');
+    console.log('[Token] Token removed from localStorage');
   }
 }
 
 export function getAuthToken(): string | null {
-  if (!authToken) {
-    authToken = localStorage.getItem('auth_token');
+  // Always read from localStorage first to ensure we get the persisted value
+  const stored = localStorage.getItem('auth_token');
+  console.log('[Token] getAuthToken - localStorage has:', !!stored, 'memory has:', !!authToken);
+  if (stored) {
+    authToken = stored;
   }
   return authToken;
 }
 
 export function clearAuthToken() {
+  console.log('[Token] clearAuthToken called');
+  console.trace('[Token] clearAuthToken stack trace');
   authToken = null;
   localStorage.removeItem('auth_token');
   localStorage.removeItem('user');
@@ -67,7 +88,7 @@ async function fetchAPI<T>(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(errorText || `HTTP ${response.status}`);
+    throw new APIError(errorText || `HTTP ${response.status}`, response.status);
   }
 
   // Handle empty responses (like 204 No Content)
@@ -269,7 +290,7 @@ export const zoneFilesAPI = {
       },
     })
       .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw new APIError(`HTTP ${res.status}`, res.status);
         return res.blob();
       })
       .then((blob) => {
@@ -1605,7 +1626,7 @@ async function fetchPublic<T>(endpoint: string, options: RequestInit = {}): Prom
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(errorText || `HTTP ${response.status}`);
+    throw new APIError(errorText || `HTTP ${response.status}`, response.status);
   }
 
   const contentType = response.headers.get('content-type');
@@ -1660,7 +1681,7 @@ export const publicShareAPI = {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(errorText || `HTTP ${response.status}`);
+      throw new APIError(errorText || `HTTP ${response.status}`, response.status);
     }
 
     return response.json();

@@ -74,6 +74,7 @@ export default function ServerControlPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [powerDialog, setPowerDialog] = useState<{ open: boolean; action?: 'reboot' | 'poweroff' | 'suspend' | 'hibernate' }>({ open: false });
+  const [killProcessDialog, setKillProcessDialog] = useState<{ open: boolean; pid?: number }>({ open: false });
   const [processSort, setProcessSort] = useState<"cpu" | "memory">("cpu");
 
   useEffect(() => {
@@ -131,12 +132,17 @@ export default function ServerControlPage() {
     }
   };
 
-  const handleKillProcess = async (pid: number) => {
-    if (!confirm(`Kill process ${pid}?`)) return;
+  const handleKillProcess = (pid: number) => {
+    setKillProcessDialog({ open: true, pid });
+  };
+
+  const confirmKillProcess = async () => {
+    if (!killProcessDialog.pid) return;
 
     try {
-      await systemAPI.killProcess(pid);
+      await systemAPI.killProcess(killProcessDialog.pid);
       toast.success("Process terminated");
+      setKillProcessDialog({ open: false });
       fetchData();
     } catch (error) {
       toast.error(`Failed to kill process: ${error}`);
@@ -576,6 +582,24 @@ export default function ServerControlPage() {
               className={powerDialog.action === "poweroff" ? "bg-red-600 hover:bg-red-700" : ""}
             >
               Confirm {powerDialog.action}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Kill Process Confirmation Dialog */}
+      <AlertDialog open={killProcessDialog.open} onOpenChange={(open) => setKillProcessDialog({ ...killProcessDialog, open })}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Kill Process</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to kill process {killProcessDialog.pid}? This may cause data loss if the process has unsaved work.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmKillProcess} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Kill Process
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,12 +1,13 @@
 /**
  * Upload Manager - Handles file upload queue with real-time progress
  * Supports both simple and chunked uploads for large files
+ * Features resumable uploads that survive interruptions
  */
 
 import { getAuthToken } from './api';
 
 const API_BASE = '/api';
-const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB chunks (larger = fewer HTTP requests)
 const CHUNK_THRESHOLD = 50 * 1024 * 1024; // Use chunked upload for files > 50MB
 const MAX_CONCURRENT_UPLOADS = 3;
 
@@ -31,6 +32,8 @@ export interface UploadItem {
   sessionId?: string;
   totalChunks?: number;
   uploadedChunks?: number;
+  // Track which chunks are uploaded (for resumability)
+  completedChunkIndices?: Set<number>;
   // Abort controller for cancellation
   abortController?: AbortController;
 }
@@ -53,6 +56,22 @@ export interface UploadProgress {
   uploaded_chunks: number;
   progress: number;
   complete: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// Server session from ListUserSessions endpoint
+export interface ServerSession {
+  session_id: string;
+  filename: string;
+  total_size: number;
+  uploaded_size: number;
+  total_chunks: number;
+  uploaded_chunks: number;
+  progress: number;
+  complete: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 type UploadListener = (items: UploadItem[]) => void;
@@ -64,6 +83,7 @@ class UploadManager {
   private completionCallbacks: Set<CompletionCallback> = new Set();
   private activeUploads = 0;
   private processingQueue = false;
+  private restoredSessionIds: Set<string> = new Set(); // Track restored sessions
 
   // Subscribe to upload completion events
   onComplete(callback: CompletionCallback): () => void {
@@ -112,18 +132,148 @@ class UploadManager {
     return `upload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
 
+  // Fetch missing chunks for a session from the server
+  private async fetchMissingChunks(sessionId: string): Promise<number[]> {
+    const token = getAuthToken();
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const res = await fetch(`${API_BASE}/upload/session/${sessionId}/missing`, {
+      headers,
+    });
+
+    if (!res.ok) {
+      throw new Error('Failed to fetch missing chunks');
+    }
+
+    const data = await res.json();
+    return data.missing_chunks || [];
+  }
+
+  // Fetch active sessions for the current user from the server
+  async fetchUserSessions(): Promise<ServerSession[]> {
+    const token = getAuthToken();
+    if (!token) return [];
+
+    try {
+      const res = await fetch(`${API_BASE}/upload/sessions`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        return [];
+      }
+
+      return await res.json() || [];
+    } catch {
+      return [];
+    }
+  }
+
+  // Restore incomplete upload sessions from the server
+  // Call this on page load to show users their pending uploads
+  async restoreSessions(): Promise<number> {
+    const sessions = await this.fetchUserSessions();
+    let restored = 0;
+
+    for (const session of sessions) {
+      // Skip already completed or already tracked sessions
+      if (session.complete || this.restoredSessionIds.has(session.session_id)) {
+        continue;
+      }
+
+      // Check if we already have this session in our items
+      const existingItem = Array.from(this.items.values()).find(
+        item => item.sessionId === session.session_id
+      );
+      if (existingItem) continue;
+
+      // Create a placeholder item for this session
+      // Note: We can't resume without the original file, so mark as paused
+      const id = this.generateId();
+      const item: UploadItem = {
+        id,
+        file: new File([], session.filename), // Placeholder - can't resume without file
+        fileName: session.filename,
+        fileSize: session.total_size,
+        targetPath: '', // Unknown from session data
+        status: 'paused',
+        progress: session.progress,
+        uploadedBytes: session.uploaded_size,
+        speed: 0,
+        eta: 0,
+        sessionId: session.session_id,
+        totalChunks: session.total_chunks,
+        uploadedChunks: session.uploaded_chunks,
+        error: 'File required to resume - drag file here or remove',
+      };
+
+      this.items.set(id, item);
+      this.restoredSessionIds.add(session.session_id);
+      restored++;
+    }
+
+    if (restored > 0) {
+      this.notify();
+    }
+
+    return restored;
+  }
+
   // Add files to upload queue
   addFiles(files: File[], targetPath: string, zoneId?: string): string[] {
     const ids: string[] = [];
 
     for (const file of files) {
+      // Check if this file matches a paused/restored session
+      const matchingItem = Array.from(this.items.values()).find(
+        item =>
+          item.status === 'paused' &&
+          item.sessionId &&
+          item.fileName === file.name &&
+          item.fileSize === file.size
+      );
+
+      if (matchingItem) {
+        // Resume this existing session with the new file reference
+        matchingItem.file = file;
+        matchingItem.targetPath = targetPath;
+        matchingItem.zoneId = zoneId;
+        matchingItem.error = undefined;
+        matchingItem.status = 'queued';
+        ids.push(matchingItem.id);
+        continue;
+      }
+
       const id = this.generateId();
+
+      // Handle folder structure: if file.name contains path separators,
+      // it's from a folder upload and we need to adjust the target path
+      let fileName = file.name;
+      let uploadPath = targetPath;
+
+      if (file.name.includes('/')) {
+        // File name contains path (e.g., "myFolder/subFolder/file.txt")
+        const pathParts = file.name.split('/');
+        fileName = pathParts.pop() || file.name; // Get the actual file name
+        const relativeDirPath = pathParts.join('/'); // Get the directory path
+
+        // Combine target path with the relative directory
+        uploadPath = targetPath.endsWith('/')
+          ? `${targetPath}${relativeDirPath}`
+          : `${targetPath}/${relativeDirPath}`;
+      }
+
       const item: UploadItem = {
         id,
         file,
-        fileName: file.name,
+        fileName,
         fileSize: file.size,
-        targetPath,
+        targetPath: uploadPath,
         zoneId,
         status: 'queued',
         progress: 0,
@@ -157,7 +307,14 @@ class UploadManager {
   resume(id: string): void {
     const item = this.items.get(id);
     if (item && item.status === 'paused') {
+      // Check if we have a valid file reference
+      if (!item.file || item.file.size === 0) {
+        item.error = 'Original file required to resume';
+        this.notify();
+        return;
+      }
       item.status = 'queued';
+      item.error = undefined;
       this.notify();
       this.processQueue();
     }
@@ -171,23 +328,98 @@ class UploadManager {
         item.abortController?.abort();
         this.activeUploads--;
       }
+      // Optionally cancel the server session
+      if (item.sessionId) {
+        this.cancelServerSession(item.sessionId).catch(() => {});
+      }
       item.status = 'cancelled';
       this.notify();
     }
   }
 
-  // Retry a failed upload
-  retry(id: string): void {
+  // Cancel a session on the server
+  private async cancelServerSession(sessionId: string): Promise<void> {
+    const token = getAuthToken();
+    try {
+      await fetch(`${API_BASE}/upload/session/${sessionId}`, {
+        method: 'DELETE',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
+    } catch {
+      // Ignore errors when cancelling
+    }
+  }
+
+  // Retry a failed upload - with resumability support
+  async retry(id: string): Promise<void> {
     const item = this.items.get(id);
-    if (item && (item.status === 'error' || item.status === 'cancelled')) {
+    if (!item || (item.status !== 'error' && item.status !== 'cancelled')) {
+      return;
+    }
+
+    // Check if we have a valid file reference
+    if (!item.file || item.file.size === 0) {
+      item.error = 'Original file required to retry';
+      this.notify();
+      return;
+    }
+
+    // If we have an existing session, check what chunks are missing
+    if (item.sessionId && item.totalChunks) {
+      try {
+        const missingChunks = await this.fetchMissingChunks(item.sessionId);
+
+        if (missingChunks.length === 0) {
+          // All chunks uploaded, just need to finalize
+          item.status = 'queued';
+          item.error = undefined;
+          item.completedChunkIndices = new Set(
+            Array.from({ length: item.totalChunks }, (_, i) => i)
+          );
+        } else if (missingChunks.length < item.totalChunks) {
+          // Partial upload - resume from where we left off
+          item.status = 'queued';
+          item.error = undefined;
+          const completedIndices = new Set<number>();
+          for (let i = 0; i < item.totalChunks; i++) {
+            if (!missingChunks.includes(i)) {
+              completedIndices.add(i);
+            }
+          }
+          item.completedChunkIndices = completedIndices;
+          item.uploadedChunks = completedIndices.size;
+          item.uploadedBytes = completedIndices.size * CHUNK_SIZE;
+          if (item.uploadedBytes > item.fileSize) {
+            item.uploadedBytes = item.fileSize;
+          }
+          item.progress = (item.uploadedBytes / item.fileSize) * 100;
+        } else {
+          // All chunks missing - start fresh but keep session
+          item.status = 'queued';
+          item.error = undefined;
+          item.completedChunkIndices = new Set();
+        }
+      } catch {
+        // Session might have expired - start fresh
+        item.status = 'queued';
+        item.progress = 0;
+        item.uploadedBytes = 0;
+        item.error = undefined;
+        item.sessionId = undefined;
+        item.completedChunkIndices = undefined;
+      }
+    } else {
+      // No session - start fresh
       item.status = 'queued';
       item.progress = 0;
       item.uploadedBytes = 0;
       item.error = undefined;
       item.sessionId = undefined;
-      this.notify();
-      this.processQueue();
+      item.completedChunkIndices = undefined;
     }
+
+    this.notify();
+    this.processQueue();
   }
 
   // Remove an upload from the list
@@ -198,6 +430,10 @@ class UploadManager {
         item.abortController?.abort();
         this.activeUploads--;
       }
+      // Cancel server session if exists
+      if (item.sessionId) {
+        this.cancelServerSession(item.sessionId).catch(() => {});
+      }
       this.items.delete(id);
       this.notify();
     }
@@ -207,6 +443,10 @@ class UploadManager {
   clearCompleted(): void {
     for (const [id, item] of this.items) {
       if (['completed', 'cancelled', 'error'].includes(item.status)) {
+        // Cancel server session for failed/cancelled uploads
+        if (item.sessionId && item.status !== 'completed') {
+          this.cancelServerSession(item.sessionId).catch(() => {});
+        }
         this.items.delete(id);
       }
     }
@@ -235,7 +475,9 @@ class UploadManager {
   // Upload a single item
   private async uploadItem(item: UploadItem): Promise<void> {
     item.status = 'uploading';
-    item.startTime = Date.now();
+    if (!item.startTime) {
+      item.startTime = Date.now();
+    }
     item.abortController = new AbortController();
     this.notify();
 
@@ -334,7 +576,7 @@ class UploadManager {
     });
   }
 
-  // Chunked upload for large files
+  // Chunked upload for large files - with resume support
   private async uploadChunked(item: UploadItem): Promise<void> {
     const token = getAuthToken();
     const headers: Record<string, string> = {
@@ -344,40 +586,68 @@ class UploadManager {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    // Create upload session
-    const sessionRes = await fetch(`${API_BASE}/upload/session`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        filename: item.fileName,
-        total_size: item.fileSize,
-        target_path: item.targetPath,
-        zone_id: item.zoneId,
+    let session: UploadSession;
+    let chunksToUpload: number[];
+
+    // Check if we have an existing session to resume
+    if (item.sessionId && item.completedChunkIndices) {
+      // Resuming - use existing session
+      session = {
+        session_id: item.sessionId,
         chunk_size: CHUNK_SIZE,
-      }),
-      signal: item.abortController!.signal,
-    });
+        total_chunks: item.totalChunks!,
+        upload_url: '',
+        finalize_url: '',
+        progress_url: '',
+      };
 
-    if (!sessionRes.ok) {
-      throw new Error(await sessionRes.text() || 'Failed to create upload session');
+      // Calculate which chunks still need uploading
+      chunksToUpload = [];
+      for (let i = 0; i < item.totalChunks!; i++) {
+        if (!item.completedChunkIndices.has(i)) {
+          chunksToUpload.push(i);
+        }
+      }
+    } else {
+      // New upload - create session
+      const sessionRes = await fetch(`${API_BASE}/upload/session`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          filename: item.fileName,
+          total_size: item.fileSize,
+          target_path: item.targetPath,
+          zone_id: item.zoneId,
+          chunk_size: CHUNK_SIZE,
+        }),
+        signal: item.abortController!.signal,
+      });
+
+      if (!sessionRes.ok) {
+        throw new Error(await sessionRes.text() || 'Failed to create upload session');
+      }
+
+      session = await sessionRes.json();
+      item.sessionId = session.session_id;
+      item.totalChunks = session.total_chunks;
+      item.uploadedChunks = 0;
+      item.completedChunkIndices = new Set();
+
+      // All chunks need uploading
+      chunksToUpload = Array.from({ length: session.total_chunks }, (_, i) => i);
     }
-
-    const session: UploadSession = await sessionRes.json();
-    item.sessionId = session.session_id;
-    item.totalChunks = session.total_chunks;
-    item.uploadedChunks = 0;
 
     // Upload chunks
     let lastTime = Date.now();
-    let lastBytes = 0;
+    let lastBytes = item.uploadedBytes || 0;
 
-    for (let i = 0; i < session.total_chunks; i++) {
+    for (const chunkIndex of chunksToUpload) {
       // Check if cancelled or paused
       if (item.abortController!.signal.aborted) {
         throw new Error('Upload cancelled');
       }
 
-      const start = i * CHUNK_SIZE;
+      const start = chunkIndex * CHUNK_SIZE;
       const end = Math.min(start + CHUNK_SIZE, item.fileSize);
       const chunk = item.file.slice(start, end);
 
@@ -385,7 +655,7 @@ class UploadManager {
       chunkFormData.append('chunk', chunk);
 
       const chunkRes = await fetch(
-        `${API_BASE}/upload/session/${session.session_id}/chunk/${i}`,
+        `${API_BASE}/upload/session/${session.session_id}/chunk/${chunkIndex}`,
         {
           method: 'POST',
           headers: token ? { 'Authorization': `Bearer ${token}` } : {},
@@ -395,25 +665,34 @@ class UploadManager {
       );
 
       if (!chunkRes.ok) {
-        throw new Error(await chunkRes.text() || `Failed to upload chunk ${i}`);
+        throw new Error(await chunkRes.text() || `Failed to upload chunk ${chunkIndex}`);
       }
 
-      // Update progress
-      item.uploadedChunks = i + 1;
-      item.uploadedBytes = end;
-      item.progress = (end / item.fileSize) * 100;
+      // Mark chunk as completed
+      item.completedChunkIndices!.add(chunkIndex);
+      item.uploadedChunks = item.completedChunkIndices!.size;
+
+      // Calculate uploaded bytes based on completed chunks
+      let uploadedBytes = 0;
+      for (const idx of item.completedChunkIndices!) {
+        const chunkStart = idx * CHUNK_SIZE;
+        const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, item.fileSize);
+        uploadedBytes += (chunkEnd - chunkStart);
+      }
+      item.uploadedBytes = uploadedBytes;
+      item.progress = (uploadedBytes / item.fileSize) * 100;
 
       // Calculate speed and ETA
       const now = Date.now();
       const timeDiff = (now - lastTime) / 1000;
-      const bytesDiff = end - lastBytes;
+      const bytesDiff = uploadedBytes - lastBytes;
 
       if (timeDiff > 0.5) {
         item.speed = bytesDiff / timeDiff;
-        const remaining = item.fileSize - end;
+        const remaining = item.fileSize - uploadedBytes;
         item.eta = item.speed > 0 ? remaining / item.speed : 0;
         lastTime = now;
-        lastBytes = end;
+        lastBytes = uploadedBytes;
       }
 
       this.notify();

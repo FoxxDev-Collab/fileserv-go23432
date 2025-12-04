@@ -32,8 +32,15 @@ func ServeStatic(staticFS fs.FS) http.HandlerFunc {
 			return
 		}
 
-		// For all route requests (no extension or .html), serve root index.html
-		// This enables true SPA client-side routing
+		// For route requests (no extension or .html), try route-specific index.html first
+		// Next.js static export creates separate index.html for each route
+		routeIndexPath := path.Join(urlPath, "index.html")
+		if _, err := fs.Stat(staticFS, routeIndexPath); err == nil {
+			serveFile(w, r, staticFS, routeIndexPath)
+			return
+		}
+
+		// Fall back to root index.html for client-side routing
 		serveFile(w, r, staticFS, "index.html")
 	}
 }

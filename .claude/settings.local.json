@@ -15,7 +15,8 @@
       "Bash(go mod vendor:*)",
       "Bash(GOFLAGS=\"-mod=mod\" go build:*)",
       "Bash(/home/foxx-fs/.local/go/bin/go list:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

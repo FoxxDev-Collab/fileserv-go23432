@@ -325,12 +325,23 @@ func ListDirectory(basePath, requestedPath string) ([]FileInfo, error) {
 }
 
 // ListDirectoryPaginated lists files with pagination, sorting, and filtering
+// basePath is the root directory, requestedPath is the relative path within it
 func ListDirectoryPaginated(basePath, requestedPath string, opts ListOptions) (*ListResult, error) {
 	fullPath, err := ValidatePath(basePath, requestedPath)
 	if err != nil {
 		return nil, err
 	}
+	return listDirectoryPaginatedInternal(fullPath, requestedPath, opts)
+}
 
+// ListDirectoryPaginatedDirect lists files when the full path is already resolved
+// fullPath is the absolute path to list, relativePath is used for building paths in response
+func ListDirectoryPaginatedDirect(fullPath, relativePath string, opts ListOptions) (*ListResult, error) {
+	return listDirectoryPaginatedInternal(fullPath, relativePath, opts)
+}
+
+// listDirectoryPaginatedInternal is the internal implementation
+func listDirectoryPaginatedInternal(fullPath, relativePath string, opts ListOptions) (*ListResult, error) {
 	// Check if path exists
 	stat, err := os.Stat(fullPath)
 	if err != nil {
@@ -346,6 +357,98 @@ func ListDirectoryPaginated(basePath, requestedPath string, opts ListOptions) (*
 		return nil, err
 	}
 
+	// OPTIMIZATION: For name-sorted listings (the default), we can sort DirEntry
+	// objects by name without calling stat(), then only stat the paginated slice.
+	// This reduces stat() calls from O(n) to O(page_size) for large directories.
+	sortByName := opts.SortBy == "" || opts.SortBy == "name"
+
+	// Apply type filter first (doesn't need stat)
+	if opts.FilterType != "" {
+		filtered := make([]os.DirEntry, 0, len(entries))
+		for _, entry := range entries {
+			if opts.FilterType == "file" && entry.IsDir() {
+				continue
+			}
+			if opts.FilterType == "folder" && !entry.IsDir() {
+				continue
+			}
+			filtered = append(filtered, entry)
+		}
+		entries = filtered
+	}
+
+	total := len(entries)
+
+	// Fast path: name sorting with pagination - only stat what we return
+	if sortByName && opts.Limit > 0 {
+		// Sort DirEntry by name (folders first, then alphabetical)
+		sort.Slice(entries, func(i, j int) bool {
+			if entries[i].IsDir() != entries[j].IsDir() {
+				return entries[i].IsDir()
+			}
+			less := strings.ToLower(entries[i].Name()) < strings.ToLower(entries[j].Name())
+			if opts.SortDesc {
+				return !less
+			}
+			return less
+		})
+
+		// Apply pagination to entries BEFORE stat
+		if opts.Offset > 0 {
+			if opts.Offset >= len(entries) {
+				entries = []os.DirEntry{}
+			} else {
+				entries = entries[opts.Offset:]
+			}
+		}
+		if len(entries) > opts.Limit {
+			entries = entries[:opts.Limit]
+		}
+
+		// Now only stat the paginated slice
+		files := make([]FileInfo, 0, len(entries))
+		for _, entry := range entries {
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+
+			entryPath := filepath.Join(relativePath, entry.Name())
+			owner, group, uid, gid := getFileOwnership(info)
+
+			ext := ""
+			mimeType := ""
+			if !entry.IsDir() {
+				ext = strings.TrimPrefix(strings.ToLower(filepath.Ext(entry.Name())), ".")
+				mimeType = getMimeType(entry.Name())
+			}
+
+			files = append(files, FileInfo{
+				Name:      entry.Name(),
+				Path:      entryPath,
+				Size:      info.Size(),
+				IsDir:     entry.IsDir(),
+				ModTime:   info.ModTime(),
+				Mode:      info.Mode().String(),
+				Owner:     owner,
+				Group:     group,
+				UID:       uid,
+				GID:       gid,
+				MimeType:  mimeType,
+				Extension: ext,
+			})
+		}
+
+		return &ListResult{
+			Files:   files,
+			Total:   total,
+			Limit:   opts.Limit,
+			Offset:  opts.Offset,
+			HasMore: opts.Offset+len(files) < total,
+		}, nil
+	}
+
+	// Slow path: need to stat all files for sorting by size/modified/type/owner
 	// Build file info list
 	files := make([]FileInfo, 0, len(entries))
 	for _, entry := range entries {
@@ -354,17 +457,7 @@ func ListDirectoryPaginated(basePath, requestedPath string, opts ListOptions) (*
 			continue
 		}
 
-		// Apply type filter
-		if opts.FilterType != "" {
-			if opts.FilterType == "file" && entry.IsDir() {
-				continue
-			}
-			if opts.FilterType == "folder" && !entry.IsDir() {
-				continue
-			}
-		}
-
-		relativePath := filepath.Join(requestedPath, entry.Name())
+		entryPath := filepath.Join(relativePath, entry.Name())
 		owner, group, uid, gid := getFileOwnership(info)
 
 		ext := ""
@@ -376,7 +469,7 @@ func ListDirectoryPaginated(basePath, requestedPath string, opts ListOptions) (*
 
 		files = append(files, FileInfo{
 			Name:      entry.Name(),
-			Path:      relativePath,
+			Path:      entryPath,
 			Size:      info.Size(),
 			IsDir:     entry.IsDir(),
 			ModTime:   info.ModTime(),
@@ -392,8 +485,6 @@ func ListDirectoryPaginated(basePath, requestedPath string, opts ListOptions) (*
 
 	// Sort files
 	sortFiles(files, opts.SortBy, opts.SortDesc)
-
-	total := len(files)
 
 	// Apply pagination
 	if opts.Offset > 0 {
@@ -581,21 +672,100 @@ func ListDirectoryRawPaginated(fullPath string, opts ListOptions, relativePath .
 		}
 	}
 
-	files := make([]FileInfo, 0, len(entries))
-	for _, entry := range entries {
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
+	// OPTIMIZATION: Same as listDirectoryPaginatedInternal - defer stat() for name sorting
+	sortByName := opts.SortBy == "" || opts.SortBy == "name"
 
-		// Apply type filter
-		if opts.FilterType != "" {
+	// Apply type filter first (doesn't need stat)
+	if opts.FilterType != "" {
+		filtered := make([]os.DirEntry, 0, len(entries))
+		for _, entry := range entries {
 			if opts.FilterType == "file" && entry.IsDir() {
 				continue
 			}
 			if opts.FilterType == "folder" && !entry.IsDir() {
 				continue
 			}
+			filtered = append(filtered, entry)
+		}
+		entries = filtered
+	}
+
+	total := len(entries)
+
+	// Fast path: name sorting with pagination - only stat what we return
+	if sortByName && opts.Limit > 0 {
+		// Sort DirEntry by name (folders first, then alphabetical)
+		sort.Slice(entries, func(i, j int) bool {
+			if entries[i].IsDir() != entries[j].IsDir() {
+				return entries[i].IsDir()
+			}
+			less := strings.ToLower(entries[i].Name()) < strings.ToLower(entries[j].Name())
+			if opts.SortDesc {
+				return !less
+			}
+			return less
+		})
+
+		// Apply pagination to entries BEFORE stat
+		if opts.Offset > 0 {
+			if opts.Offset >= len(entries) {
+				entries = []os.DirEntry{}
+			} else {
+				entries = entries[opts.Offset:]
+			}
+		}
+		if len(entries) > opts.Limit {
+			entries = entries[:opts.Limit]
+		}
+
+		// Now only stat the paginated slice
+		files := make([]FileInfo, 0, len(entries))
+		for _, entry := range entries {
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+
+			owner, group, uid, gid := getFileOwnership(info)
+
+			ext := ""
+			mimeType := ""
+			if !entry.IsDir() {
+				ext = strings.TrimPrefix(strings.ToLower(filepath.Ext(entry.Name())), ".")
+				mimeType = getMimeType(entry.Name())
+			}
+
+			files = append(files, FileInfo{
+				Name:      entry.Name(),
+				Path:      prefix + entry.Name(),
+				Size:      info.Size(),
+				IsDir:     entry.IsDir(),
+				ModTime:   info.ModTime(),
+				Mode:      info.Mode().String(),
+				Owner:     owner,
+				Group:     group,
+				UID:       uid,
+				GID:       gid,
+				MimeType:  mimeType,
+				Extension: ext,
+			})
+		}
+
+		return &ListResult{
+			Files:   files,
+			Total:   total,
+			Limit:   opts.Limit,
+			Offset:  opts.Offset,
+			HasMore: opts.Offset+len(files) < total,
+		}, nil
+	}
+
+	// Slow path: need to stat all files for sorting by size/modified/type/owner
+	files := make([]FileInfo, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			continue
 		}
 
 		owner, group, uid, gid := getFileOwnership(info)
@@ -625,8 +795,6 @@ func ListDirectoryRawPaginated(fullPath string, opts ListOptions, relativePath .
 
 	// Sort files
 	sortFiles(files, opts.SortBy, opts.SortDesc)
-
-	total := len(files)
 
 	// Apply pagination
 	if opts.Offset > 0 {

@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"fileserv/internal/fileops"
 	"fileserv/middleware"
+	"fileserv/models"
 	"fileserv/storage"
 
 	"github.com/go-chi/chi/v5"
@@ -76,7 +79,8 @@ func (h *ChunkedUploadHandler) CreateSession(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// If zone is specified, validate access and check pool limits
+	// Resolve target path - if zone is specified, resolve to actual filesystem path
+	targetPath := req.TargetPath
 	if req.ZoneID != "" {
 		zone, err := h.store.GetShareZone(req.ZoneID)
 		if err != nil {
@@ -84,9 +88,32 @@ func (h *ChunkedUploadHandler) CreateSession(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
+		// Create user object for access check
+		user := &models.User{
+			ID:       userCtx.UserID,
+			Username: userCtx.Username,
+			IsAdmin:  userCtx.IsAdmin,
+			Groups:   userCtx.Groups,
+		}
+
+		if !zone.UserHasZoneAccess(user) {
+			http.Error(w, "Access denied to zone", http.StatusForbidden)
+			return
+		}
+
+		if zone.ReadOnly {
+			http.Error(w, "Zone is read-only", http.StatusForbidden)
+			return
+		}
+
 		pool, err := h.store.GetStoragePool(zone.PoolID)
 		if err != nil {
 			http.Error(w, "Pool not found", http.StatusNotFound)
+			return
+		}
+
+		if !pool.Enabled {
+			http.Error(w, "Pool is disabled", http.StatusForbidden)
 			return
 		}
 
@@ -107,13 +134,33 @@ func (h *ChunkedUploadHandler) CreateSession(w http.ResponseWriter, r *http.Requ
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+
+		// Resolve the full filesystem path
+		basePath := filepath.Join(pool.Path, zone.Path)
+		if zone.ZoneType == models.ZoneTypePersonal {
+			basePath = filepath.Join(basePath, userCtx.Username)
+		}
+
+		// Clean and validate the relative path
+		cleanPath := filepath.Clean("/" + req.TargetPath)
+		if cleanPath == "/" {
+			cleanPath = ""
+		}
+
+		targetPath = filepath.Join(basePath, cleanPath)
+
+		// Prevent path traversal
+		if !strings.HasPrefix(targetPath, basePath) {
+			http.Error(w, "Invalid path", http.StatusForbidden)
+			return
+		}
 	}
 
 	// Create session
 	session, err := h.manager.CreateSession(
 		req.Filename,
 		req.TotalSize,
-		req.TargetPath,
+		targetPath,
 		userCtx.UserID,
 		req.ChunkSize,
 	)

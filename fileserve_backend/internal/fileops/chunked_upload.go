@@ -262,14 +262,17 @@ func (m *ChunkedUploadManager) Finalize(sessionID string) (string, error) {
 		return "", fmt.Errorf("upload not complete")
 	}
 
+	// TargetPath is the directory, combine with filename for final path
+	finalPath := filepath.Join(session.TargetPath, session.Filename)
+
 	// Ensure target directory exists
-	targetDir := filepath.Dir(session.TargetPath)
+	targetDir := filepath.Dir(finalPath)
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create target directory: %w", err)
 	}
 
 	// Create final file
-	finalFile, err := os.Create(session.TargetPath)
+	finalFile, err := os.Create(finalPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create final file: %w", err)
 	}
@@ -288,14 +291,14 @@ func (m *ChunkedUploadManager) Finalize(sessionID string) (string, error) {
 		chunkFile, err := os.Open(chunkPath)
 		if err != nil {
 			finalFile.Close()
-			os.Remove(session.TargetPath)
+			os.Remove(finalPath)
 			return "", fmt.Errorf("failed to open chunk %d: %w", i, err)
 		}
 
 		if _, err := io.Copy(finalFile, chunkFile); err != nil {
 			chunkFile.Close()
 			finalFile.Close()
-			os.Remove(session.TargetPath)
+			os.Remove(finalPath)
 			return "", fmt.Errorf("failed to write chunk %d: %w", i, err)
 		}
 		chunkFile.Close()
@@ -308,14 +311,14 @@ func (m *ChunkedUploadManager) Finalize(sessionID string) (string, error) {
 	}
 
 	if stat.Size() != session.TotalSize {
-		os.Remove(session.TargetPath)
+		os.Remove(finalPath)
 		return "", fmt.Errorf("final file size mismatch: expected %d, got %d", session.TotalSize, stat.Size())
 	}
 
 	// Clean up session
 	m.DeleteSession(sessionID)
 
-	return session.TargetPath, nil
+	return finalPath, nil
 }
 
 // DeleteSession removes a session and its temporary files

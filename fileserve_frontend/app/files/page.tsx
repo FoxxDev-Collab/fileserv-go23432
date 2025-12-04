@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
-import { FileList, FileItem } from "@/components/files/file-list";
+import { FileList, FileItem, ColumnConfig, defaultColumns } from "@/components/files/file-list";
 import { FileBreadcrumbs } from "@/components/files/breadcrumbs";
 import { UploadButton } from "@/components/files/upload-button";
 import { UploadDropzone } from "@/components/files/upload-dropzone";
@@ -19,6 +19,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,6 +64,9 @@ import {
   FolderInput,
   X,
   CheckSquare,
+  Settings2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import { zoneFilesAPI, UserZoneInfo, FileInfo, ListOptions } from "@/lib/api";
@@ -293,14 +304,15 @@ export default function FilesPage() {
   const [selectedZone, setSelectedZone] = useState<UserZoneInfo | null>(null);
   const [zonesLoading, setZonesLoading] = useState(true);
   const [zonesError, setZonesError] = useState<string | null>(null);
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated, hasCheckedAuth } = useAuth();
   const router = useRouter();
 
   // Pagination state
   const [totalFiles, setTotalFiles] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [currentOffset, setCurrentOffset] = useState(0);
-  const PAGE_SIZE = 50; // Load 50 files at a time
+  const PAGE_SIZE = 100; // Load 100 files at a time (optimized backend)
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = user?.role === "admin";
 
@@ -320,6 +332,24 @@ export default function FilesPage() {
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [isBulkOperating, setIsBulkOperating] = useState(false);
+
+  // Column visibility state
+  const [columns, setColumns] = useState<ColumnConfig[]>(() =>
+    defaultColumns.map((col) => ({
+      ...col,
+      visible: col.id === "select" ? true : col.visible, // Enable selection by default
+    }))
+  );
+
+  const toggleColumn = (columnId: string) => {
+    setColumns((cols) =>
+      cols.map((col) =>
+        col.id === columnId && !col.alwaysVisible
+          ? { ...col, visible: !col.visible }
+          : col
+      )
+    );
+  };
 
   // Convert API FileInfo to component FileItem
   const convertFiles = (apiFiles: FileInfo[]): FileItem[] => {
@@ -409,12 +439,17 @@ export default function FilesPage() {
     }
   };
 
-  // Redirect if not authenticated
+  // Debug: log on every render
+  console.log("[Files] RENDER - hasCheckedAuth:", hasCheckedAuth, "isAuthenticated:", isAuthenticated, "user:", user?.username);
+
+  // Redirect if not authenticated (only after auth check completes)
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
+    console.log("[Files] useEffect - hasCheckedAuth:", hasCheckedAuth, "isAuthenticated:", isAuthenticated);
+    if (hasCheckedAuth && !isAuthenticated) {
+      console.log("[Files] REDIRECTING to / because not authenticated");
       router.replace("/");
     }
-  }, [authLoading, isAuthenticated, router]);
+  }, [hasCheckedAuth, isAuthenticated, router]);
 
   // Load zones when authenticated
   useEffect(() => {
@@ -429,6 +464,30 @@ export default function FilesPage() {
       loadFiles(selectedZone.zone_id, currentPath);
     }
   }, [selectedZone, currentPath, isAuthenticated, loadFiles]);
+
+  // Infinite scroll: auto-load more when scrolling near the bottom
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && hasMore && !isLoadingMore && selectedZone && !searchTerm) {
+          loadFiles(selectedZone.zone_id, currentPath, true);
+        }
+      },
+      { threshold: 0.1, rootMargin: '100px' }
+    );
+
+    const currentRef = loadMoreRef.current;
+    if (currentRef) {
+      observer.observe(currentRef);
+    }
+
+    return () => {
+      if (currentRef) {
+        observer.unobserve(currentRef);
+      }
+    };
+  }, [hasMore, isLoadingMore, selectedZone, currentPath, searchTerm, loadFiles]);
 
   const handleZoneChange = (zoneId: string) => {
     const zone = zones.find(z => z.zone_id === zoneId);
@@ -630,13 +689,13 @@ export default function FilesPage() {
     file.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Show skeleton during initial auth check (only if no cached user)
-  if (authLoading && !user) {
+  // Show skeleton while auth check hasn't completed
+  if (!hasCheckedAuth) {
     return <FilesSkeleton />;
   }
 
   // Not authenticated - will redirect, show skeleton in meantime
-  if (!authLoading && !isAuthenticated) {
+  if (!isAuthenticated) {
     return <FilesSkeleton />;
   }
 
@@ -774,6 +833,34 @@ export default function FilesPage() {
                             />
                           </>
                         )}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-9">
+                              <Settings2 className="h-4 w-4 mr-2" />
+                              Columns
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuLabel>Toggle columns</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {columns
+                              .filter((col) => !col.alwaysVisible && col.id !== "select")
+                              .map((col) => (
+                                <DropdownMenuCheckboxItem
+                                  key={col.id}
+                                  checked={col.visible}
+                                  onCheckedChange={() => toggleColumn(col.id)}
+                                >
+                                  {col.visible ? (
+                                    <Eye className="h-4 w-4 mr-2" />
+                                  ) : (
+                                    <EyeOff className="h-4 w-4 mr-2" />
+                                  )}
+                                  {col.label}
+                                </DropdownMenuCheckboxItem>
+                              ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
 
@@ -811,27 +898,30 @@ export default function FilesPage() {
                             onShare={selectedZone.can_share ? handleShareClick : undefined}
                             showSelection={true}
                             onSelectionChange={handleSelectionChange}
+                            columns={columns}
+                            onColumnsChange={setColumns}
                           />
-                          {/* Load More Button */}
-                          {hasMore && !searchTerm && (
-                            <div className="flex justify-center py-4">
-                              <Button
-                                variant="outline"
-                                onClick={handleLoadMore}
-                                disabled={isLoadingMore}
-                                className="min-w-[200px]"
-                              >
-                                {isLoadingMore ? (
-                                  <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Loading...
-                                  </>
-                                ) : (
-                                  <>
-                                    Load More ({files.length} of {totalFiles})
-                                  </>
-                                )}
-                              </Button>
+                          {/* Infinite scroll sentinel & loading indicator */}
+                          {!searchTerm && (
+                            <div ref={loadMoreRef} className="flex justify-center py-4">
+                              {isLoadingMore ? (
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  <span>Loading more files...</span>
+                                </div>
+                              ) : hasMore ? (
+                                <Button
+                                  variant="ghost"
+                                  onClick={handleLoadMore}
+                                  className="text-muted-foreground"
+                                >
+                                  {files.length} of {totalFiles} files loaded
+                                </Button>
+                              ) : files.length > 0 ? (
+                                <span className="text-sm text-muted-foreground">
+                                  {files.length} file{files.length !== 1 ? 's' : ''} loaded
+                                </span>
+                              ) : null}
                             </div>
                           )}
                         </>

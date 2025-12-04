@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -192,13 +193,17 @@ func (h *ZoneFileHandler) ListZoneFiles(w http.ResponseWriter, r *http.Request) 
 	opts.SortDesc = r.URL.Query().Get("sort_desc") == "true"
 	opts.FilterType = r.URL.Query().Get("type")
 
+	// DEBUG: Log the listing path
+	log.Printf("LIST DEBUG: fullPath=%s, relativePath=%s, limit=%d", fullPath, relativePath, opts.Limit)
+
 	// Check if pagination is requested
 	if opts.Limit > 0 {
-		// Use paginated listing
-		result, err := fileops.ListDirectoryPaginated(fullPath, relativePath, opts)
+		// Use paginated listing - fullPath is already resolved, use Direct version
+		result, err := fileops.ListDirectoryPaginatedDirect(fullPath, relativePath, opts)
 		if err != nil {
 			if os.IsNotExist(err) {
 				// Return empty result for non-existent directories
+				log.Printf("LIST DEBUG: directory does not exist: %s", fullPath)
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(fileops.ListResult{
 					Files:   []fileops.FileInfo{},
@@ -213,6 +218,7 @@ func (h *ZoneFileHandler) ListZoneFiles(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
+		log.Printf("LIST DEBUG: found %d files, total=%d", len(result.Files), result.Total)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
 	} else {
@@ -359,6 +365,9 @@ func (h *ZoneFileHandler) UploadZoneFile(w http.ResponseWriter, r *http.Request)
 		finalPath = filepath.Join(fullPath, header.Filename)
 	}
 
+	// DEBUG: Log the paths
+	log.Printf("UPLOAD DEBUG: targetPath=%s, fullPath=%s, finalPath=%s, filename=%s", targetPath, fullPath, finalPath, header.Filename)
+
 	// Save file
 	outFile, err := os.Create(finalPath)
 	if err != nil {
@@ -382,11 +391,23 @@ func (h *ZoneFileHandler) UploadZoneFile(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Calculate the actual relative path of the uploaded file
+	// targetPath is what was requested, but file may have been saved inside it
+	actualPath := targetPath
+	if finalPath != fullPath {
+		// File was saved with filename appended (target was a directory)
+		if targetPath == "/" || targetPath == "" {
+			actualPath = "/" + header.Filename
+		} else {
+			actualPath = filepath.Join(targetPath, header.Filename)
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"message": "File uploaded successfully",
-		"path":    targetPath,
+		"path":    actualPath,
 		"size":    written,
 	})
 }

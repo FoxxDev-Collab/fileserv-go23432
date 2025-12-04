@@ -20,9 +20,6 @@ import {
   FileSpreadsheet,
   Presentation,
   FileType,
-  Settings2,
-  Eye,
-  EyeOff,
 } from "lucide-react";
 import {
   Table,
@@ -38,8 +35,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-  DropdownMenuCheckboxItem,
-  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -78,17 +73,19 @@ interface FileListProps {
   onShare?: (file: FileItem) => void;
   onSelectionChange?: (selectedFiles: FileItem[]) => void;
   showSelection?: boolean;
+  columns?: ColumnConfig[];
+  onColumnsChange?: (columns: ColumnConfig[]) => void;
 }
 
 // Column visibility configuration
-interface ColumnConfig {
+export interface ColumnConfig {
   id: string;
   label: string;
   visible: boolean;
   alwaysVisible?: boolean;
 }
 
-const defaultColumns: ColumnConfig[] = [
+export const defaultColumns: ColumnConfig[] = [
   { id: "select", label: "Select", visible: false },
   { id: "icon", label: "Icon", visible: true, alwaysVisible: true },
   { id: "name", label: "Name", visible: true, alwaysVisible: true },
@@ -312,16 +309,22 @@ export function FileList({
   onShare,
   onSelectionChange,
   showSelection = false,
+  columns: controlledColumns,
+  onColumnsChange,
 }: FileListProps) {
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
-  const [columns, setColumns] = useState<ColumnConfig[]>(
+  const [internalColumns, setInternalColumns] = useState<ColumnConfig[]>(
     defaultColumns.map((col) => ({
       ...col,
       visible: col.id === "select" ? showSelection : col.visible,
     }))
   );
+
+  // Use controlled columns if provided, otherwise use internal state
+  const columns = controlledColumns ?? internalColumns;
+  const setColumns = onColumnsChange ?? setInternalColumns;
 
   const formatFileSize = (bytes?: number) => {
     if (bytes === undefined || bytes === null) return "-";
@@ -443,13 +446,12 @@ export function FileList({
   };
 
   const toggleColumn = (columnId: string) => {
-    setColumns((cols) =>
-      cols.map((col) =>
-        col.id === columnId && !col.alwaysVisible
-          ? { ...col, visible: !col.visible }
-          : col
-      )
+    const newColumns = columns.map((col) =>
+      col.id === columnId && !col.alwaysVisible
+        ? { ...col, visible: !col.visible }
+        : col
     );
+    setColumns(newColumns);
   };
 
   const isColumnVisible = (columnId: string) =>
@@ -497,38 +499,6 @@ export function FileList({
   return (
     <TooltipProvider>
       <div className="space-y-2">
-        {/* Column visibility toggle */}
-        <div className="flex justify-end">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8">
-                <Settings2 className="h-4 w-4 mr-2" />
-                Columns
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuLabel>Toggle columns</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {columns
-                .filter((col) => !col.alwaysVisible && col.id !== "select")
-                .map((col) => (
-                  <DropdownMenuCheckboxItem
-                    key={col.id}
-                    checked={col.visible}
-                    onCheckedChange={() => toggleColumn(col.id)}
-                  >
-                    {col.visible ? (
-                      <Eye className="h-4 w-4 mr-2" />
-                    ) : (
-                      <EyeOff className="h-4 w-4 mr-2" />
-                    )}
-                    {col.label}
-                  </DropdownMenuCheckboxItem>
-                ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-
         {/* File table */}
         <div className="border rounded-lg overflow-hidden">
           <Table>

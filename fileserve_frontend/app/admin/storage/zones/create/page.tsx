@@ -707,40 +707,63 @@ export default function CreateZonePage() {
                       </div>
 
                       {/* Allowed Groups */}
-                      <div className="space-y-2">
-                        <Label>Allowed Groups</Label>
-                        <div className="flex gap-2">
-                          <Select value={newAllowedGroup} onValueChange={setNewAllowedGroup}>
-                            <SelectTrigger className="flex-1">
-                              <SelectValue placeholder="Select group" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {systemGroups
-                                .filter(g => !formData.allowed_groups.includes(g))
-                                .map((g) => (
-                                  <SelectItem key={g} value={g}>{g}</SelectItem>
-                                ))}
-                            </SelectContent>
-                          </Select>
-                          <Button
-                            variant="outline"
-                            onClick={() => addToList("allowed_groups", newAllowedGroup, setNewAllowedGroup)}
-                          >
-                            Add
-                          </Button>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label>Allow All Groups</Label>
+                            <p className="text-sm text-muted-foreground">No group restriction (access based on user settings)</p>
+                          </div>
+                          <Switch
+                            checked={allowAllGroups}
+                            onCheckedChange={(checked) => {
+                              setAllowAllGroups(checked);
+                              if (checked) {
+                                setFormData(prev => ({ ...prev, allowed_groups: [] }));
+                              }
+                            }}
+                          />
                         </div>
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {formData.allowed_groups.map((g) => (
-                            <Badge key={g} variant="secondary" className="cursor-pointer" onClick={() => removeFromList("allowed_groups", g)}>
-                              <Users className="h-3 w-3 mr-1" />
-                              {g}
-                              <span className="ml-1">&times;</span>
-                            </Badge>
-                          ))}
-                          {formData.allowed_groups.length === 0 && (
-                            <span className="text-sm text-muted-foreground">No groups specified</span>
-                          )}
-                        </div>
+
+                        {!allowAllGroups && (
+                          <>
+                            <Label>Allowed Groups</Label>
+                            <div className="flex gap-2">
+                              <Select value={newAllowedGroup} onValueChange={setNewAllowedGroup}>
+                                <SelectTrigger className="flex-1">
+                                  <SelectValue placeholder="Select group" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {systemGroups
+                                    .filter(g => !formData.allowed_groups.includes(g))
+                                    .map((g) => (
+                                      <SelectItem key={g} value={g}>{g}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                variant="outline"
+                                onClick={() => addToList("allowed_groups", newAllowedGroup, setNewAllowedGroup)}
+                              >
+                                Add
+                              </Button>
+                            </div>
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {formData.allowed_groups.map((g) => (
+                                <Badge key={g} variant="secondary" className="cursor-pointer" onClick={() => removeFromList("allowed_groups", g)}>
+                                  <Users className="h-3 w-3 mr-1" />
+                                  {g}
+                                  <span className="ml-1">&times;</span>
+                                </Badge>
+                              ))}
+                              {formData.allowed_groups.length === 0 && (
+                                <span className="text-sm text-muted-foreground text-amber-600">
+                                  <AlertCircle className="h-3 w-3 inline mr-1" />
+                                  No groups selected
+                                </span>
+                              )}
+                            </div>
+                          </>
+                        )}
                       </div>
 
                       {/* Denied Users */}
@@ -1293,14 +1316,16 @@ export default function CreateZonePage() {
                             {formData.read_only && <Badge variant="secondary">Read Only</Badge>}
                             {formData.browsable && <Badge variant="secondary">Browsable</Badge>}
                             {formData.allow_guest_access && <Badge variant="secondary">Guest Access</Badge>}
+                            {allowAllUsers && <Badge variant="default">All Users Allowed</Badge>}
+                            {allowAllGroups && <Badge variant="default">All Groups Allowed</Badge>}
                           </div>
-                          {formData.allowed_users.length > 0 && (
+                          {!allowAllUsers && formData.allowed_users.length > 0 && (
                             <div>
                               <span className="text-muted-foreground">Allowed Users: </span>
                               {formData.allowed_users.join(", ")}
                             </div>
                           )}
-                          {formData.allowed_groups.length > 0 && (
+                          {!allowAllGroups && formData.allowed_groups.length > 0 && (
                             <div>
                               <span className="text-muted-foreground">Allowed Groups: </span>
                               {formData.allowed_groups.join(", ")}

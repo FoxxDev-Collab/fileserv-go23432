@@ -2,15 +2,26 @@
  * React hooks for upload management
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { uploadManager, UploadItem } from '../upload-manager';
 
 // Hook to access upload state
 export function useUploadQueue() {
   const [items, setItems] = useState<UploadItem[]>([]);
+  const restoredRef = useRef(false);
 
   useEffect(() => {
-    return uploadManager.subscribe(setItems);
+    const unsubscribe = uploadManager.subscribe(setItems);
+
+    // Restore incomplete sessions on first mount
+    if (!restoredRef.current) {
+      restoredRef.current = true;
+      uploadManager.restoreSessions().catch(() => {
+        // Ignore errors during session restoration
+      });
+    }
+
+    return unsubscribe;
   }, []);
 
   const addFiles = useCallback((files: File[], targetPath: string, zoneId?: string) => {
@@ -20,9 +31,14 @@ export function useUploadQueue() {
   const pause = useCallback((id: string) => uploadManager.pause(id), []);
   const resume = useCallback((id: string) => uploadManager.resume(id), []);
   const cancel = useCallback((id: string) => uploadManager.cancel(id), []);
-  const retry = useCallback((id: string) => uploadManager.retry(id), []);
+  const retry = useCallback((id: string) => {
+    uploadManager.retry(id).catch(() => {
+      // Error handling is done inside retry()
+    });
+  }, []);
   const remove = useCallback((id: string) => uploadManager.remove(id), []);
   const clearCompleted = useCallback(() => uploadManager.clearCompleted(), []);
+  const restoreSessions = useCallback(() => uploadManager.restoreSessions(), []);
 
   const stats = uploadManager.getStats();
   const overallProgress = uploadManager.getOverallProgress();
@@ -36,6 +52,7 @@ export function useUploadQueue() {
     retry,
     remove,
     clearCompleted,
+    restoreSessions,
     stats,
     overallProgress,
     hasActiveUploads: stats.uploading > 0 || stats.queued > 0,

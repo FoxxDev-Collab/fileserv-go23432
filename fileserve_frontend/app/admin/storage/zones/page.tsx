@@ -275,33 +275,7 @@ export default function ShareZonesPage() {
   };
 
   const handleEdit = (zone: ShareZone) => {
-    setSelectedZone(zone);
-    setFormData({
-      pool_id: zone.pool_id,
-      name: zone.name,
-      path: zone.path,
-      description: zone.description,
-      zone_type: zone.zone_type,
-      enabled: zone.enabled,
-      auto_provision: zone.auto_provision,
-      allowed_users: zone.allowed_users || [],
-      allowed_groups: zone.allowed_groups || [],
-      deny_users: zone.deny_users || [],
-      deny_groups: zone.deny_groups || [],
-      allow_network_shares: zone.allow_network_shares,
-      allow_web_shares: zone.allow_web_shares,
-      allow_guest_access: zone.allow_guest_access,
-      smb_enabled: zone.smb_enabled ?? true,
-      nfs_enabled: zone.nfs_enabled ?? false,
-      smb_options: zone.smb_options || { ...defaultSMBOptions },
-      nfs_options: zone.nfs_options || { ...defaultNFSOptions },
-      web_options: zone.web_options || { ...defaultWebOptions },
-      max_quota_per_user: zone.max_quota_per_user / 1024 / 1024 / 1024,
-      read_only: zone.read_only ?? false,
-      browsable: zone.browsable ?? true,
-    });
-    setEditTab("basic");
-    setEditDialogOpen(true);
+    router.push(`/admin/storage/zones/edit?id=${zone.id}`);
   };
 
   const handleViewDetails = (zone: ShareZone) => {

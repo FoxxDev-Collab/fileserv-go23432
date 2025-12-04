@@ -103,8 +103,8 @@ function UploadItemRow({ item, onPause, onResume, onCancel, onRetry, onRemove }:
 
         {/* File info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-medium truncate">{item.fileName}</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-medium truncate max-w-[280px]">{item.fileName}</p>
             <StatusBadge status={item.status} />
           </div>
 
@@ -143,6 +143,17 @@ function UploadItemRow({ item, onPause, onResume, onCancel, onRetry, onRemove }:
               <>
                 <span className="text-muted-foreground/50">|</span>
                 <span>Chunk {item.uploadedChunks || 0}/{item.totalChunks}</span>
+              </>
+            )}
+
+            {/* Duration for completed uploads */}
+            {item.status === 'completed' && item.startTime && item.endTime && (
+              <>
+                <span className="text-muted-foreground/50">|</span>
+                <span className="text-green-600 dark:text-green-400">
+                  {formatTime(Math.round((item.endTime - item.startTime) / 1000))}
+                  {' '}@ {formatSpeed(item.fileSize / ((item.endTime - item.startTime) / 1000))} avg
+                </span>
               </>
             )}
 
@@ -248,7 +259,7 @@ export function UploadQueuePanel() {
   return (
     <div className={cn(
       "fixed bottom-4 right-4 z-50 bg-background border rounded-lg shadow-lg transition-all duration-200",
-      isMinimized ? "w-64" : "w-96"
+      isMinimized ? "w-72" : "w-[520px]"
     )}>
       {/* Header */}
       <div

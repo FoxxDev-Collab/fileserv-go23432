@@ -25,6 +25,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -63,6 +73,7 @@ export default function VolumesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [createLVDialog, setCreateLVDialog] = useState<{ open: boolean; vgName?: string }>({ open: false });
+  const [deleteLVDialog, setDeleteLVDialog] = useState<{ open: boolean; vgName?: string; lvName?: string }>({ open: false });
   const [lvOptions, setLvOptions] = useState({ name: "", size: "", fstype: "ext4", mount: "" });
   const [isCreating, setIsCreating] = useState(false);
 
@@ -129,14 +140,17 @@ export default function VolumesPage() {
     }
   };
 
-  const handleDeleteLV = async (vgName: string, lvName: string) => {
-    if (!confirm(`Are you sure you want to delete logical volume ${lvName}? This action cannot be undone.`)) {
-      return;
-    }
+  const handleDeleteLV = (vgName: string, lvName: string) => {
+    setDeleteLVDialog({ open: true, vgName, lvName });
+  };
+
+  const confirmDeleteLV = async () => {
+    if (!deleteLVDialog.vgName || !deleteLVDialog.lvName) return;
 
     try {
-      await storageAPI.deleteLogicalVolume(vgName, lvName, false);
+      await storageAPI.deleteLogicalVolume(deleteLVDialog.vgName, deleteLVDialog.lvName, false);
       toast.success("Logical volume deleted");
+      setDeleteLVDialog({ open: false });
       fetchData();
     } catch (error) {
       toast.error(`Failed to delete logical volume: ${error}`);
@@ -620,6 +634,24 @@ export default function VolumesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Logical Volume Confirmation Dialog */}
+      <AlertDialog open={deleteLVDialog.open} onOpenChange={(open) => setDeleteLVDialog({ ...deleteLVDialog, open })}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Logical Volume</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete logical volume &quot;{deleteLVDialog.lvName}&quot;? This action cannot be undone and all data on the volume will be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteLV} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete Volume
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

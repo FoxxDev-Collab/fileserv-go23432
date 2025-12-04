@@ -419,6 +419,26 @@ func (z *ShareZone) UserHasZoneAccess(user *User) bool {
 		return true
 	}
 
+	// Check deny lists first - explicit denies take precedence
+	for _, u := range z.DenyUsers {
+		if u == user.Username {
+			return false
+		}
+	}
+	for _, denyGroup := range z.DenyGroups {
+		for _, userGroup := range user.Groups {
+			if denyGroup == userGroup {
+				return false
+			}
+		}
+	}
+
+	// If both allowed lists are empty, allow all authenticated users
+	// (except those in deny lists, which we already checked)
+	if len(z.AllowedUsers) == 0 && len(z.AllowedGroups) == 0 {
+		return true
+	}
+
 	// Check allowed users
 	for _, u := range z.AllowedUsers {
 		if u == user.Username || u == "*" {

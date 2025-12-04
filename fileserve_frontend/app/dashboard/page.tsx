@@ -14,18 +14,18 @@ import { HardDrive, Files, Clock, Folder } from "lucide-react";
 import { DashboardSkeleton } from "@/components/skeletons";
 
 export default function DashboardPage() {
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, hasCheckedAuth } = useAuth();
   const router = useRouter();
 
   // Use React Query for data fetching with caching
   const { data, isLoading: dataLoading } = useDashboardStats();
 
-  // Redirect if not authenticated
+  // Redirect if not authenticated (only after auth check completes)
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
+    if (hasCheckedAuth && !isAuthenticated) {
       router.replace("/");
     }
-  }, [authLoading, isAuthenticated, router]);
+  }, [hasCheckedAuth, isAuthenticated, router]);
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 B";
@@ -54,8 +54,8 @@ export default function DashboardPage() {
     return date.toLocaleDateString();
   };
 
-  // Show skeleton during initial auth check (only if no cached user)
-  if (authLoading && !user) {
+  // Show skeleton while auth check hasn't completed
+  if (!hasCheckedAuth) {
     return <DashboardSkeleton />;
   }
 
@@ -66,6 +66,7 @@ export default function DashboardPage() {
 
   const stats = data?.stats ?? { fileCount: 0, folderCount: 0, totalSize: 0 };
   const recentFiles = data?.recentFiles ?? [];
+  const primaryZone = data?.primaryZone ?? null;
   const isLoading = dataLoading && !data;
 
   return (
@@ -145,7 +146,16 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-4">
-                  <UploadButton currentPath="/" />
+                  {primaryZone ? (
+                    <UploadButton currentPath="/" zoneId={primaryZone.zone_id} />
+                  ) : (
+                    <Link
+                      href="/files"
+                      className="text-sm text-primary hover:underline"
+                    >
+                      Set up a storage zone to upload files
+                    </Link>
+                  )}
                   <Link
                     href="/files"
                     className="text-sm text-primary hover:underline"

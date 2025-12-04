@@ -30,6 +30,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { MoreVertical, UserPlus, Edit, Trash2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -50,6 +60,9 @@ export default function UsersPage() {
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newIsAdmin, setNewIsAdmin] = useState(false);
+
+  // Delete confirmation dialog state
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; user?: User }>({ open: false });
 
   // Redirect if not authenticated or not admin
   useEffect(() => {
@@ -112,19 +125,21 @@ export default function UsersPage() {
     }
   };
 
-  const handleDeleteUser = async (user: User) => {
+  const handleDeleteUser = (user: User) => {
     if (user.id === currentUser?.id) {
       toast.error("Cannot delete your own account");
       return;
     }
+    setDeleteDialog({ open: true, user });
+  };
 
-    if (!confirm(`Are you sure you want to delete user "${user.username}"?`)) {
-      return;
-    }
+  const confirmDeleteUser = async () => {
+    if (!deleteDialog.user) return;
 
     try {
-      await usersAPI.delete(user.id);
-      toast.success(`Deleted user: ${user.username}`);
+      await usersAPI.delete(deleteDialog.user.id);
+      toast.success(`Deleted user: ${deleteDialog.user.username}`);
+      setDeleteDialog({ open: false });
       loadUsers();
     } catch (error) {
       console.error("Failed to delete user:", error);
@@ -323,6 +338,24 @@ export default function UsersPage() {
           </div>
         </main>
       </div>
+
+      {/* Delete User Confirmation Dialog */}
+      <AlertDialog open={deleteDialog.open} onOpenChange={(open) => setDeleteDialog({ ...deleteDialog, open })}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete User</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete user &quot;{deleteDialog.user?.username}&quot;? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteUser} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

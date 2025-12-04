@@ -24,6 +24,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -68,6 +78,7 @@ export default function FilesystemsPage() {
     persistent: false,
   });
   const [isMounting, setIsMounting] = useState(false);
+  const [unmountDialog, setUnmountDialog] = useState<{ open: boolean; path?: string; force?: boolean }>({ open: false });
 
   useEffect(() => {
     if (!authLoading) {
@@ -128,12 +139,17 @@ export default function FilesystemsPage() {
     }
   };
 
-  const handleUnmount = async (path: string, force: boolean = false) => {
-    if (!confirm(`Unmount ${path}?`)) return;
+  const handleUnmount = (path: string, force: boolean = false) => {
+    setUnmountDialog({ open: true, path, force });
+  };
+
+  const confirmUnmount = async () => {
+    if (!unmountDialog.path) return;
 
     try {
-      await storageAPI.unmount(path, force);
+      await storageAPI.unmount(unmountDialog.path, unmountDialog.force || false);
       toast.success("Filesystem unmounted");
+      setUnmountDialog({ open: false });
       fetchData();
     } catch (error) {
       toast.error(`Failed to unmount: ${error}`);
@@ -474,6 +490,24 @@ export default function FilesystemsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Unmount Confirmation Dialog */}
+      <AlertDialog open={unmountDialog.open} onOpenChange={(open) => setUnmountDialog({ ...unmountDialog, open })}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unmount Filesystem</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to unmount {unmountDialog.path}? Make sure no processes are using this filesystem.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmUnmount}>
+              Unmount
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

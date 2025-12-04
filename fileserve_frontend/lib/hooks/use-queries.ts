@@ -119,30 +119,54 @@ export function useDashboardStats() {
   return useQuery({
     queryKey: ["dashboardStats"],
     queryFn: async () => {
-      const files = await filesAPI.list("/");
+      // Get accessible zones first
+      const zones = await zoneFilesAPI.getAccessibleZones();
+
+      // If no zones, return empty stats
+      if (!zones || zones.length === 0) {
+        return {
+          stats: { fileCount: 0, folderCount: 0, totalSize: 0, zoneCount: 0 },
+          recentFiles: [],
+          primaryZone: null as UserZoneInfo | null,
+        };
+      }
 
       let fileCount = 0;
       let folderCount = 0;
       let totalSize = 0;
+      let allFiles: FileInfo[] = [];
 
-      files.forEach((f) => {
-        if (f.is_dir) {
-          folderCount++;
-        } else {
-          fileCount++;
-          totalSize += f.size;
+      // Get files from the first zone (primary zone) for dashboard stats
+      // This avoids too many API calls on dashboard load
+      const primaryZone = zones[0];
+      try {
+        const files = await zoneFilesAPI.list(primaryZone.zone_id, "/");
+
+        if (files) {
+          files.forEach((f) => {
+            if (f.is_dir) {
+              folderCount++;
+            } else {
+              fileCount++;
+              totalSize += f.size;
+            }
+          });
+          allFiles = files;
         }
-      });
+      } catch (error) {
+        console.error("Failed to load zone files for dashboard:", error);
+      }
 
       // Get recent files (non-folders, sorted by mod_time)
-      const recentFiles = files
+      const recentFiles = allFiles
         .filter((f) => !f.is_dir)
         .sort((a, b) => new Date(b.mod_time).getTime() - new Date(a.mod_time).getTime())
         .slice(0, 5);
 
       return {
-        stats: { fileCount, folderCount, totalSize },
+        stats: { fileCount, folderCount, totalSize, zoneCount: zones.length },
         recentFiles,
+        primaryZone,
       };
     },
     staleTime: 30 * 1000,

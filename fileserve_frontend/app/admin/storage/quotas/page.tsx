@@ -25,6 +25,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -73,6 +83,7 @@ export default function QuotasPage() {
     inode_hard: "",
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [removeQuotaDialog, setRemoveQuotaDialog] = useState<{ open: boolean; quota?: Quota }>({ open: false });
 
   useEffect(() => {
     if (!authLoading) {
@@ -160,12 +171,21 @@ export default function QuotasPage() {
     }
   };
 
-  const handleRemoveQuota = async (quota: Quota) => {
-    if (!confirm(`Remove quota for ${quota.target} on ${quota.filesystem}?`)) return;
+  const handleRemoveQuota = (quota: Quota) => {
+    setRemoveQuotaDialog({ open: true, quota });
+  };
+
+  const confirmRemoveQuota = async () => {
+    if (!removeQuotaDialog.quota) return;
 
     try {
-      await quotasAPI.removeQuota(quota.type as "user" | "group", quota.target, quota.filesystem);
+      await quotasAPI.removeQuota(
+        removeQuotaDialog.quota.type as "user" | "group",
+        removeQuotaDialog.quota.target,
+        removeQuotaDialog.quota.filesystem
+      );
       toast.success("Quota removed");
+      setRemoveQuotaDialog({ open: false });
       fetchData();
     } catch (error) {
       toast.error(`Failed to remove quota: ${error}`);
@@ -601,6 +621,24 @@ export default function QuotasPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Remove Quota Confirmation Dialog */}
+      <AlertDialog open={removeQuotaDialog.open} onOpenChange={(open) => setRemoveQuotaDialog({ ...removeQuotaDialog, open })}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Quota</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove the quota for {removeQuotaDialog.quota?.target} on {removeQuotaDialog.quota?.filesystem}?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmRemoveQuota} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Remove Quota
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

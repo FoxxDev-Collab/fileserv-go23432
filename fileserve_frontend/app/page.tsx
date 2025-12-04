@@ -11,21 +11,21 @@ import { toast } from "sonner";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isAuthenticated, isLoading, user } = useAuth();
+  const { login, isAuthenticated, isLoading, user, hasCheckedAuth } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Redirect if already authenticated - admins go to admin, users go to dashboard
   useEffect(() => {
-    if (isAuthenticated && !isLoading && user) {
+    if (hasCheckedAuth && isAuthenticated && user) {
       if (user.role === "admin") {
         router.push("/admin");
       } else {
         router.push("/dashboard");
       }
     }
-  }, [isAuthenticated, isLoading, user, router]);
+  }, [hasCheckedAuth, isAuthenticated, user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +43,8 @@ export default function LoginPage() {
     }
   };
 
-  if (isLoading) {
+  // Show loading while checking auth
+  if (!hasCheckedAuth) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-muted-foreground">Loading...</div>

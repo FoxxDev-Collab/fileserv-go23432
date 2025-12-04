@@ -36,11 +36,36 @@ export function UploadButton({ currentPath = "/", onUploadComplete, zoneId }: Up
     if (!files || files.length === 0) return;
 
     const fileArray = Array.from(files);
+    const isFolderUpload = e.target === folderInputRef.current;
+
+    // For folder uploads, we need to preserve the directory structure
+    // using webkitRelativePath
+    let filesToUpload: File[];
+    if (isFolderUpload) {
+      filesToUpload = fileArray.map(file => {
+        // webkitRelativePath contains the relative path from the selected folder
+        // e.g., "myFolder/subFolder/file.txt"
+        const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+        if (relativePath) {
+          // Create a new File with the relative path as the name
+          return new File([file], relativePath, {
+            type: file.type,
+            lastModified: file.lastModified,
+          });
+        }
+        return file;
+      });
+    } else {
+      filesToUpload = fileArray;
+    }
 
     // Add files to upload queue
-    addFiles(fileArray, currentPath, zoneId);
+    addFiles(filesToUpload, currentPath, zoneId);
 
-    toast.success(`Added ${fileArray.length} file${fileArray.length !== 1 ? 's' : ''} to upload queue`);
+    const message = isFolderUpload
+      ? `Added ${filesToUpload.length} file${filesToUpload.length !== 1 ? 's' : ''} from folder to upload queue`
+      : `Added ${filesToUpload.length} file${filesToUpload.length !== 1 ? 's' : ''} to upload queue`;
+    toast.success(message);
 
     // Trigger callback for UI refresh when uploads complete
     // This is handled by the upload manager notifying subscribers
