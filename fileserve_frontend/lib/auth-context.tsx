@@ -13,6 +13,14 @@ export interface User {
   groups?: string[];
 }
 
+interface CachedUser {
+  user: User;
+  cachedAt: number;
+}
+
+// Cache expiry time in milliseconds (5 minutes)
+const CACHE_EXPIRY_MS = 5 * 60 * 1000;
+
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
@@ -23,6 +31,34 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+function getCachedUser(): User | null {
+  try {
+    const cached = localStorage.getItem("user");
+    if (!cached) return null;
+
+    const parsed: CachedUser = JSON.parse(cached);
+
+    // Check if cache has expired
+    if (Date.now() - parsed.cachedAt > CACHE_EXPIRY_MS) {
+      localStorage.removeItem("user");
+      return null;
+    }
+
+    return parsed.user;
+  } catch {
+    localStorage.removeItem("user");
+    return null;
+  }
+}
+
+function setCachedUser(user: User): void {
+  const cached: CachedUser = {
+    user,
+    cachedAt: Date.now(),
+  };
+  localStorage.setItem("user", JSON.stringify(cached));
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   // All state starts as "loading" to prevent hydration mismatch
@@ -35,11 +71,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const checkAuth = async () => {
       // Check for token in localStorage
       const token = getAuthToken();
-      console.log("[Auth] Token found:", !!token);
 
       if (!token) {
         // No token = not authenticated
-        console.log("[Auth] No token, user is not authenticated");
         setUser(null);
         setIsLoading(false);
         setHasCheckedAuth(true);
@@ -48,9 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Have token - validate with server
       try {
-        console.log("[Auth] Validating token with server...");
         const userData = await authAPI.getCurrentUser();
-        console.log("[Auth] Token valid, user:", userData.username);
 
         const validatedUser: User = {
           id: userData.id,
@@ -60,25 +92,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
 
         setUser(validatedUser);
-        localStorage.setItem("user", JSON.stringify(validatedUser));
+        setCachedUser(validatedUser);
       } catch (error: unknown) {
-        console.error("[Auth] Validation failed:", error);
         // Only clear on 401/403, keep user on network errors
         if (error instanceof APIError && (error.status === 401 || error.status === 403)) {
-          console.log("[Auth] Token invalid (401/403), clearing auth");
           clearAuthToken();
           localStorage.removeItem("user");
           setUser(null);
         } else {
-          // Network error - try to use cached user
-          console.log("[Auth] Network error, trying cached user");
-          try {
-            const cached = localStorage.getItem("user");
-            if (cached) {
-              setUser(JSON.parse(cached));
-            }
-          } catch {
-            // Ignore parse errors
+          // Network error - try to use cached user (with expiry check)
+          const cachedUser = getCachedUser();
+          if (cachedUser) {
+            setUser(cachedUser);
           }
         }
       } finally {
@@ -93,12 +118,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (username: string, password: string) => {
     setIsLoading(true);
     try {
-      console.log("[Auth] Logging in...");
       const response = await authAPI.login(username, password);
 
       // Store the token
       setAuthToken(response.token);
-      console.log("[Auth] Token stored");
 
       // Set user data (convert is_admin to role)
       const userData: User = {
@@ -109,13 +132,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         groups: response.user.groups || [],
       };
 
-      // Also store user in localStorage for persistence
-      localStorage.setItem("user", JSON.stringify(userData));
+      // Also store user in localStorage for persistence (with timestamp)
+      setCachedUser(userData);
       setUser(userData);
       setHasCheckedAuth(true);
-      console.log("[Auth] Login successful, user:", userData.username);
     } catch (error) {
-      console.error("[Auth] Login failed:", error);
       throw error;
     } finally {
       setIsLoading(false);
@@ -125,8 +146,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     try {
       await authAPI.logout();
-    } catch (error) {
-      console.error("Logout error:", error);
+    } catch {
+      // Silently handle logout errors
     } finally {
       clearAuthToken();
       localStorage.removeItem("user");

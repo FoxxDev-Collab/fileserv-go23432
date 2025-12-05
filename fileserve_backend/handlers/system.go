@@ -97,6 +97,73 @@ func validateDmesgFacility(facility string) error {
 	return nil
 }
 
+// Unit name regex - systemd unit names have a specific format
+var journalUnitRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_@.-]*\.(service|socket|target|mount|automount|swap|timer|path|slice|scope)$`)
+
+// validateJournalUnit validates a journalctl unit name
+func validateJournalUnit(unit string) error {
+	if unit == "" {
+		return nil // Empty is allowed
+	}
+
+	// Max length check
+	if len(unit) > 256 {
+		return fmt.Errorf("unit name too long")
+	}
+
+	// Check for path traversal
+	if strings.Contains(unit, "/") || strings.Contains(unit, "..") {
+		return fmt.Errorf("invalid unit name: path characters not allowed")
+	}
+
+	// Validate format (or allow simple service name without extension)
+	if !journalUnitRegex.MatchString(unit) {
+		// Allow simple name without extension (will be treated as .service)
+		if matched, _ := regexp.MatchString(`^[a-zA-Z0-9][a-zA-Z0-9_@.-]*$`, unit); !matched {
+			return fmt.Errorf("invalid unit name format")
+		}
+	}
+
+	return nil
+}
+
+// Valid journalctl priorities (0-7 or names)
+var validJournalPriorities = map[string]bool{
+	"0": true, "1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true,
+	"emerg": true, "alert": true, "crit": true, "err": true,
+	"warning": true, "notice": true, "info": true, "debug": true,
+}
+
+// validateJournalPriority validates a journalctl priority
+func validateJournalPriority(priority string) error {
+	if priority == "" {
+		return nil
+	}
+
+	if !validJournalPriorities[priority] {
+		return fmt.Errorf("invalid priority: must be 0-7 or emerg/alert/crit/err/warning/notice/info/debug")
+	}
+	return nil
+}
+
+// validateJournalLines validates the lines parameter
+func validateJournalLines(lines string) error {
+	if lines == "" {
+		return nil
+	}
+
+	n, err := strconv.Atoi(lines)
+	if err != nil {
+		return fmt.Errorf("lines must be a number")
+	}
+
+	if n < 1 || n > 10000 {
+		return fmt.Errorf("lines must be between 1 and 10000")
+	}
+
+	return nil
+}
+
 // GetSystemResources returns system resource information
 func GetSystemResources() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -641,6 +708,24 @@ func GetSystemLogs() http.HandlerFunc {
 		unit := r.URL.Query().Get("unit")
 		lines := r.URL.Query().Get("lines")
 		priority := r.URL.Query().Get("priority")
+
+		// Validate unit parameter
+		if err := validateJournalUnit(unit); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate lines parameter
+		if err := validateJournalLines(lines); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate priority parameter
+		if err := validateJournalPriority(priority); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		if lines == "" {
 			lines = "100"

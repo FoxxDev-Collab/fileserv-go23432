@@ -137,6 +137,70 @@ func validateMountPoint(mountPoint string) error {
 	return nil
 }
 
+// LVM name validation regex - alphanumeric, underscore, dash, dot (no leading dash/dot)
+var lvmNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+
+// Reserved LVM names that cannot be used
+var reservedLVMNames = map[string]bool{
+	"snapshot": true, "pvmove": true, "_mlog": true, "_mimage": true,
+	"_rimage": true, "_rmeta": true, "_tdata": true, "_tmeta": true,
+}
+
+// validateLVMName validates a volume group or logical volume name
+func validateLVMName(name string, nameType string) error {
+	if name == "" {
+		return fmt.Errorf("%s name is required", nameType)
+	}
+
+	// LVM names have a max length of 127 characters (for VG) or 255 (for full path)
+	if len(name) > 127 {
+		return fmt.Errorf("%s name too long (max 127 characters)", nameType)
+	}
+
+	// Check regex pattern
+	if !lvmNameRegex.MatchString(name) {
+		return fmt.Errorf("invalid %s name: must start with alphanumeric and contain only alphanumeric, underscore, dash, or dot", nameType)
+	}
+
+	// Check for path traversal
+	if strings.Contains(name, "/") || strings.Contains(name, "..") {
+		return fmt.Errorf("invalid %s name: path traversal not allowed", nameType)
+	}
+
+	// Check for reserved names
+	lowerName := strings.ToLower(name)
+	for reserved := range reservedLVMNames {
+		if strings.Contains(lowerName, reserved) {
+			return fmt.Errorf("invalid %s name: contains reserved LVM name pattern", nameType)
+		}
+	}
+
+	return nil
+}
+
+// validateLVMSize validates a size string for LVM operations
+func validateLVMSize(size string) error {
+	if size == "" {
+		return fmt.Errorf("size is required")
+	}
+
+	// Allow percentage-based sizes
+	if strings.HasSuffix(size, "%FREE") || strings.HasSuffix(size, "%VG") || strings.HasSuffix(size, "%ORIGIN") {
+		percent := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(size, "%FREE"), "%VG"), "%ORIGIN")
+		if matched, _ := regexp.MatchString(`^\d+$`, percent); !matched {
+			return fmt.Errorf("invalid percentage size format")
+		}
+		return nil
+	}
+
+	// Allow absolute sizes with units
+	if matched, _ := regexp.MatchString(`^\d+[KMGTkmgt]?[Bb]?$`, size); !matched {
+		return fmt.Errorf("invalid size format: use number with optional unit (K, M, G, T)")
+	}
+
+	return nil
+}
+
 // Helper function to format bytes to human readable
 func formatBytes(bytes uint64) string {
 	const unit = 1024
@@ -2114,9 +2178,23 @@ func CreateVolumeGroup() http.HandlerFunc {
 			return
 		}
 
-		if req.Name == "" || len(req.Devices) == 0 {
-			http.Error(w, "Name and devices are required", http.StatusBadRequest)
+		if len(req.Devices) == 0 {
+			http.Error(w, "At least one device is required", http.StatusBadRequest)
 			return
+		}
+
+		// Validate VG name
+		if err := validateLVMName(req.Name, "volume group"); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate device paths
+		for _, dev := range req.Devices {
+			if err := validateDevicePath(dev); err != nil {
+				http.Error(w, fmt.Sprintf("Invalid device %s: %v", dev, err), http.StatusBadRequest)
+				return
+			}
 		}
 
 		// Initialize physical volumes first
@@ -2152,9 +2230,46 @@ func CreateLogicalVolume() http.HandlerFunc {
 			return
 		}
 
-		if req.Name == "" || req.VGName == "" || req.Size == "" {
-			http.Error(w, "Name, volume group, and size are required", http.StatusBadRequest)
+		// Validate LV name
+		if err := validateLVMName(req.Name, "logical volume"); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
+		}
+
+		// Validate VG name
+		if err := validateLVMName(req.VGName, "volume group"); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate size
+		if err := validateLVMSize(req.Size); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate filesystem type if specified
+		if req.FSType != "" {
+			if err := validateFSType(req.FSType); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+
+		// Validate snapshot name if specified
+		if req.Snapshot != "" {
+			if err := validateLVMName(req.Snapshot, "snapshot"); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+
+		// Validate mount point if specified
+		if req.Mount != "" {
+			if err := validateMountPoint(req.Mount); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 
 		// Create logical volume
@@ -2215,8 +2330,9 @@ func DeleteVolumeGroup() http.HandlerFunc {
 		name := r.URL.Query().Get("name")
 		force := r.URL.Query().Get("force") == "true"
 
-		if name == "" {
-			http.Error(w, "Volume group name required", http.StatusBadRequest)
+		// Validate VG name
+		if err := validateLVMName(name, "volume group"); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -2245,8 +2361,15 @@ func DeleteLogicalVolume() http.HandlerFunc {
 		lv := r.URL.Query().Get("lv")
 		force := r.URL.Query().Get("force") == "true"
 
-		if vg == "" || lv == "" {
-			http.Error(w, "Volume group and logical volume names required", http.StatusBadRequest)
+		// Validate VG name
+		if err := validateLVMName(vg, "volume group"); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate LV name
+		if err := validateLVMName(lv, "logical volume"); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -2285,6 +2408,31 @@ func ResizeLogicalVolume() http.HandlerFunc {
 		var req models.ResizeRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Validate device path (should be /dev/vg/lv)
+		if req.Device == "" {
+			http.Error(w, "Device path is required", http.StatusBadRequest)
+			return
+		}
+		if !strings.HasPrefix(req.Device, "/dev/") {
+			http.Error(w, "Invalid device path: must start with /dev/", http.StatusBadRequest)
+			return
+		}
+		// Check for path traversal
+		if strings.Contains(req.Device, "..") {
+			http.Error(w, "Invalid device path: path traversal not allowed", http.StatusBadRequest)
+			return
+		}
+
+		// Validate size - handle relative (+/-) and absolute sizes
+		sizeToValidate := req.Size
+		if strings.HasPrefix(sizeToValidate, "+") || strings.HasPrefix(sizeToValidate, "-") {
+			sizeToValidate = sizeToValidate[1:]
+		}
+		if err := validateLVMSize(sizeToValidate); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -2329,6 +2477,43 @@ func ResizeLogicalVolume() http.HandlerFunc {
 	}
 }
 
+// allowedBrowsePaths defines paths that are safe to browse for storage selection
+// This prevents users from browsing sensitive system directories
+var allowedBrowsePaths = []string{
+	"/",
+	"/mnt",
+	"/media",
+	"/home",
+	"/srv",
+	"/data",
+	"/storage",
+	"/tank",      // Common ZFS pool names
+	"/pool",
+	"/export",
+	"/shares",
+	"/opt",
+	"/var/lib",
+}
+
+// isPathAllowedForBrowsing checks if a path is within allowed directories
+func isPathAllowedForBrowsing(path string) bool {
+	path = filepath.Clean(path)
+
+	// Check if path is within an allowed base path
+	for _, allowed := range allowedBrowsePaths {
+		if path == allowed || strings.HasPrefix(path, allowed+"/") {
+			return true
+		}
+	}
+
+	// Allow /dev/disk and related for device selection
+	if strings.HasPrefix(path, "/dev/disk") {
+		return true
+	}
+
+	return false
+}
+
 // BrowseDirectories returns a list of directories for path browsing/autocomplete
 func BrowseDirectories() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -2343,6 +2528,12 @@ func BrowseDirectories() http.HandlerFunc {
 		// Ensure path starts with /
 		if !strings.HasPrefix(basePath, "/") {
 			basePath = "/" + basePath
+		}
+
+		// Security: Restrict browsing to allowed paths
+		if !isPathAllowedForBrowsing(basePath) {
+			http.Error(w, "Access to this path is restricted", http.StatusForbidden)
+			return
 		}
 
 		// Check if path exists

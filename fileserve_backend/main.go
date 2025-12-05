@@ -99,6 +99,7 @@ func main() {
 
 	// Global middleware
 	r.Use(middleware.Logger)
+	r.Use(middleware.SecurityHeaders)
 	r.Use(middleware.CORS)
 
 	// Public share routes (NO AUTH)

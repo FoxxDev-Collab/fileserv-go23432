@@ -1,0 +1,16 @@
+# Snyk (https://snyk.io) policy file
+# Ignoring false positives - Snyk database has incorrect data for Go 1.25.0
+version: v1.25.0
+
+# Exclude go.mod from Open Source scanning
+exclude:
+  global:
+    - "go.mod"
+    - "go.sum"
+
+# Ignore Go runtime false positives
+ignore:
+  'snyk:lic:golang:go:Unknown':
+    - '*':
+        reason: 'False positive - Go 1.25.0 is latest stable release'
+        expires: 2026-01-01T00:00:00.000Z

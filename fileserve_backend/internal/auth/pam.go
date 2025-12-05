@@ -4,13 +4,21 @@ import (
 	"fmt"
 	"os/user"
 	"strings"
+	"sync"
 
 	"github.com/msteinert/pam/v2"
 )
 
-// AdminGroups defines which system groups grant admin privileges
+// adminGroupsMu protects concurrent access to adminGroups
+var adminGroupsMu sync.RWMutex
+
+// adminGroups defines which system groups grant admin privileges
 // sudo is first for Ubuntu/Debian compatibility, wheel for RHEL/CentOS
-var AdminGroups = []string{"sudo", "wheel", "admin", "root"}
+var adminGroups = []string{"sudo", "wheel", "admin", "root"}
+
+// AdminGroups returns a copy of the current admin groups (for backwards compatibility)
+// Deprecated: Use GetAdminGroups() instead
+var AdminGroups = adminGroups
 
 // PAMUser represents an authenticated system user
 type PAMUser struct {
@@ -92,8 +100,13 @@ func AuthenticatePAM(username, password string) (*PAMUser, error) {
 
 // checkAdminGroups checks if the user belongs to any admin group
 func checkAdminGroups(groups []string) bool {
+	adminGroupsMu.RLock()
+	currentAdminGroups := make([]string, len(adminGroups))
+	copy(currentAdminGroups, adminGroups)
+	adminGroupsMu.RUnlock()
+
 	for _, userGroup := range groups {
-		for _, adminGroup := range AdminGroups {
+		for _, adminGroup := range currentAdminGroups {
 			if strings.EqualFold(userGroup, adminGroup) {
 				return true
 			}
@@ -102,7 +115,21 @@ func checkAdminGroups(groups []string) bool {
 	return false
 }
 
+// GetAdminGroups returns a copy of the current admin groups
+func GetAdminGroups() []string {
+	adminGroupsMu.RLock()
+	defer adminGroupsMu.RUnlock()
+	result := make([]string, len(adminGroups))
+	copy(result, adminGroups)
+	return result
+}
+
 // SetAdminGroups allows configuring which groups are considered admin
 func SetAdminGroups(groups []string) {
-	AdminGroups = groups
+	adminGroupsMu.Lock()
+	defer adminGroupsMu.Unlock()
+	adminGroups = make([]string, len(groups))
+	copy(adminGroups, groups)
+	// Update deprecated exported variable for backwards compatibility
+	AdminGroups = adminGroups
 }

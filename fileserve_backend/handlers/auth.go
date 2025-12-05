@@ -7,13 +7,129 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
+	"unicode"
 
 	"fileserv/config"
 	"fileserv/internal/auth"
 	"fileserv/middleware"
 	"fileserv/storage"
 )
+
+// Rate limiting for login attempts
+type loginRateLimiter struct {
+	mu       sync.Mutex
+	attempts map[string][]time.Time
+	maxAttempts int
+	window      time.Duration
+}
+
+var loginLimiter = &loginRateLimiter{
+	attempts:    make(map[string][]time.Time),
+	maxAttempts: 5,            // Max 5 attempts
+	window:      15 * time.Minute, // Per 15 minutes
+}
+
+// isRateLimited checks if an IP is rate limited and records the attempt
+func (l *loginRateLimiter) isRateLimited(ip string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-l.window)
+
+	// Get existing attempts for this IP
+	attempts := l.attempts[ip]
+
+	// Filter out old attempts
+	var recentAttempts []time.Time
+	for _, t := range attempts {
+		if t.After(cutoff) {
+			recentAttempts = append(recentAttempts, t)
+		}
+	}
+
+	// Check if rate limited
+	if len(recentAttempts) >= l.maxAttempts {
+		return true
+	}
+
+	// Record this attempt
+	recentAttempts = append(recentAttempts, now)
+	l.attempts[ip] = recentAttempts
+
+	return false
+}
+
+// clearAttempts clears attempts for an IP after successful login
+func (l *loginRateLimiter) clearAttempts(ip string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.attempts, ip)
+}
+
+// getClientIP extracts the client IP from request
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header first (for reverse proxies)
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff != "" {
+		// Take the first IP in the chain
+		parts := strings.Split(xff, ",")
+		return strings.TrimSpace(parts[0])
+	}
+
+	// Check X-Real-IP
+	xri := r.Header.Get("X-Real-IP")
+	if xri != "" {
+		return xri
+	}
+
+	// Fall back to RemoteAddr
+	ip := r.RemoteAddr
+	// Remove port if present
+	if colonIdx := strings.LastIndex(ip, ":"); colonIdx != -1 {
+		ip = ip[:colonIdx]
+	}
+	return ip
+}
+
+// validatePasswordComplexity checks if password meets complexity requirements
+func validatePasswordComplexity(password string) error {
+	if len(password) < 8 {
+		return fmt.Errorf("password must be at least 8 characters")
+	}
+
+	var hasUpper, hasLower, hasDigit, hasSpecial bool
+
+	for _, c := range password {
+		switch {
+		case unicode.IsUpper(c):
+			hasUpper = true
+		case unicode.IsLower(c):
+			hasLower = true
+		case unicode.IsDigit(c):
+			hasDigit = true
+		case unicode.IsPunct(c) || unicode.IsSymbol(c):
+			hasSpecial = true
+		}
+	}
+
+	if !hasUpper {
+		return fmt.Errorf("password must contain at least one uppercase letter")
+	}
+	if !hasLower {
+		return fmt.Errorf("password must contain at least one lowercase letter")
+	}
+	if !hasDigit {
+		return fmt.Errorf("password must contain at least one digit")
+	}
+	if !hasSpecial {
+		return fmt.Errorf("password must contain at least one special character")
+	}
+
+	return nil
+}
 
 type LoginRequest struct {
 	Username string `json:"username"`
@@ -40,6 +156,14 @@ func Login(store storage.DataStore, cfg *config.Config, jwtSecret string) http.H
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Rate limiting check
+		clientIP := getClientIP(r)
+		if loginLimiter.isRateLimited(clientIP) {
+			log.Printf("Rate limited login attempt from IP %s", clientIP)
+			http.Error(w, "Too many login attempts. Please try again later.", http.StatusTooManyRequests)
+			return
+		}
+
 		var req LoginRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -54,7 +178,7 @@ func Login(store storage.DataStore, cfg *config.Config, jwtSecret string) http.H
 			// Use PAM authentication
 			pamUser, err := auth.AuthenticatePAM(req.Username, req.Password)
 			if err != nil {
-				log.Printf("PAM auth failed for user %s: %v", req.Username, err)
+				log.Printf("PAM auth failed for user %s from IP %s: %v", req.Username, clientIP, err)
 				http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 				return
 			}
@@ -97,6 +221,9 @@ func Login(store storage.DataStore, cfg *config.Config, jwtSecret string) http.H
 			http.Error(w, "Failed to create session", http.StatusInternalServerError)
 			return
 		}
+
+		// Clear rate limit attempts on successful login
+		loginLimiter.clearAttempts(clientIP)
 
 		response := LoginResponse{
 			Token:     token,
@@ -191,8 +318,9 @@ func ChangePassword(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		if len(req.NewPassword) < 8 {
-			http.Error(w, "New password must be at least 8 characters", http.StatusBadRequest)
+		// Validate password complexity
+		if err := validatePasswordComplexity(req.NewPassword); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 

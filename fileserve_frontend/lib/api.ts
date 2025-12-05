@@ -29,24 +29,17 @@ function normalizePath(path: string): string {
 }
 
 export function setAuthToken(token: string | null) {
-  console.log('[Token] setAuthToken called with:', token ? 'token present' : 'null');
   authToken = token;
   if (token) {
     localStorage.setItem('auth_token', token);
-    console.log('[Token] Token saved to localStorage');
-    // Verify it was saved
-    const saved = localStorage.getItem('auth_token');
-    console.log('[Token] Verify localStorage has token:', !!saved);
   } else {
     localStorage.removeItem('auth_token');
-    console.log('[Token] Token removed from localStorage');
   }
 }
 
 export function getAuthToken(): string | null {
   // Always read from localStorage first to ensure we get the persisted value
   const stored = localStorage.getItem('auth_token');
-  console.log('[Token] getAuthToken - localStorage has:', !!stored, 'memory has:', !!authToken);
   if (stored) {
     authToken = stored;
   }
@@ -54,8 +47,6 @@ export function getAuthToken(): string | null {
 }
 
 export function clearAuthToken() {
-  console.log('[Token] clearAuthToken called');
-  console.trace('[Token] clearAuthToken stack trace');
   authToken = null;
   localStorage.removeItem('auth_token');
   localStorage.removeItem('user');

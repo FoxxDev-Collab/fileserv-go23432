@@ -229,7 +229,7 @@ func (h *ChunkedUploadHandler) UploadChunk(w http.ResponseWriter, r *http.Reques
 	var reader io.Reader
 
 	contentType := r.Header.Get("Content-Type")
-	if contentType != "" && contentType[:19] == "multipart/form-data" {
+	if contentType != "" && len(contentType) >= 19 && contentType[:19] == "multipart/form-data" {
 		// Parse as multipart
 		if err := r.ParseMultipartForm(int64(session.ChunkSize) + 1024*1024); err != nil {
 			http.Error(w, "Failed to parse form", http.StatusBadRequest)
