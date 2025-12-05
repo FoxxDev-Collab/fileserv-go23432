@@ -104,6 +104,7 @@ func (h *ZoneFileHandler) GetUserZones(w http.ResponseWriter, r *http.Request) {
 
 // resolveZonePathWithPool validates and resolves a zone-relative path to a physical path
 // Also returns the pool for file size/type validation
+// This function includes symlink resolution to prevent path traversal attacks
 func (h *ZoneFileHandler) resolveZonePathWithPool(zoneID, relativePath string, user *models.User) (string, *models.ShareZone, *models.StoragePool, error) {
 	zone, err := h.store.GetShareZone(zoneID)
 	if err != nil {
@@ -139,9 +140,52 @@ func (h *ZoneFileHandler) resolveZonePathWithPool(zoneID, relativePath string, u
 
 	fullPath := filepath.Join(basePath, cleanPath)
 
-	// Prevent path traversal
+	// Basic path traversal check before symlink resolution
 	if !strings.HasPrefix(fullPath, basePath) {
 		return "", nil, nil, os.ErrPermission
+	}
+
+	// Resolve symlinks in the base path to get canonical form
+	resolvedBase, err := filepath.EvalSymlinks(basePath)
+	if err != nil {
+		// Base path doesn't exist yet - this is OK for auto-provisioning
+		// In this case, we can't do symlink checking, but basic traversal check passed
+		resolvedBase = basePath
+	}
+
+	// Try to resolve the full path to catch symlink attacks
+	resolvedFull, err := filepath.EvalSymlinks(fullPath)
+	if err != nil {
+		// Path doesn't exist yet - validate the existing parent
+		existingPath := fullPath
+		for {
+			parent := filepath.Dir(existingPath)
+			if parent == existingPath {
+				break
+			}
+			existingPath = parent
+			if _, statErr := os.Stat(existingPath); statErr == nil {
+				break
+			}
+		}
+
+		// Resolve the existing parent
+		resolvedParent, evalErr := filepath.EvalSymlinks(existingPath)
+		if evalErr != nil {
+			resolvedParent = existingPath
+		}
+
+		// Verify the existing parent is within the base path
+		if !strings.HasPrefix(resolvedParent, resolvedBase) && resolvedParent != resolvedBase {
+			return "", nil, nil, fmt.Errorf("path traversal detected via symlink: %w", os.ErrPermission)
+		}
+
+		return fullPath, zone, pool, nil
+	}
+
+	// Verify the resolved path is within the resolved base
+	if !strings.HasPrefix(resolvedFull, resolvedBase) && resolvedFull != resolvedBase {
+		return "", nil, nil, fmt.Errorf("path traversal detected via symlink: %w", os.ErrPermission)
 	}
 
 	return fullPath, zone, pool, nil
@@ -361,19 +405,26 @@ func (h *ZoneFileHandler) UploadZoneFile(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Sanitize filename to prevent injection attacks
+	safeFilename := fileops.SanitizeFilename(header.Filename)
+	if safeFilename == "" {
+		http.Error(w, "Invalid filename", http.StatusBadRequest)
+		return
+	}
+
 	// Check if target is a directory
 	info, err := os.Stat(fullPath)
 	finalPath := fullPath
 	if err == nil && info.IsDir() {
-		finalPath = filepath.Join(fullPath, header.Filename)
+		finalPath = filepath.Join(fullPath, safeFilename)
 	} else if os.IsNotExist(err) {
 		// Target doesn't exist - treat it as a directory
 		os.MkdirAll(fullPath, 0755)
-		finalPath = filepath.Join(fullPath, header.Filename)
+		finalPath = filepath.Join(fullPath, safeFilename)
 	}
 
 	// DEBUG: Log the paths
-	log.Printf("UPLOAD DEBUG: targetPath=%s, fullPath=%s, finalPath=%s, filename=%s", targetPath, fullPath, finalPath, header.Filename)
+	log.Printf("UPLOAD DEBUG: targetPath=%s, fullPath=%s, finalPath=%s, filename=%s", targetPath, fullPath, finalPath, safeFilename)
 
 	// Save file
 	outFile, err := os.Create(finalPath)
@@ -414,9 +465,9 @@ func (h *ZoneFileHandler) UploadZoneFile(w http.ResponseWriter, r *http.Request)
 	if finalPath != fullPath {
 		// File was saved with filename appended (target was a directory)
 		if targetPath == "/" || targetPath == "" {
-			actualPath = "/" + header.Filename
+			actualPath = "/" + safeFilename
 		} else {
-			actualPath = filepath.Join(targetPath, header.Filename)
+			actualPath = filepath.Join(targetPath, safeFilename)
 		}
 	}
 

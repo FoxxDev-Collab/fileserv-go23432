@@ -1,8 +1,8 @@
 module fileserv
 
-go 1.24.0
+go 1.25.0
 
-toolchain go1.24.11
+toolchain go1.25.3
 
 require (
 	github.com/go-chi/chi/v5 v5.0.11

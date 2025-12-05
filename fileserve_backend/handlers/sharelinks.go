@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -188,9 +190,9 @@ func (h *ShareLinkHandler) CreateShareLink(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Validate and get full path
-	fullPath := filepath.Join(h.dataDir, filepath.Clean(req.TargetPath))
-	if !strings.HasPrefix(fullPath, h.dataDir) {
+	// Validate path securely with symlink resolution
+	fullPath, err := validateSharePath(h.dataDir, req.TargetPath, "")
+	if err != nil {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
@@ -376,8 +378,13 @@ func (h *PublicHandler) GetPublicShare(w http.ResponseWriter, r *http.Request) {
 	// Increment view count
 	h.store.IncrementShareLinkView(link.ID)
 
-	// Get file info
-	fullPath := filepath.Join(h.dataDir, filepath.Clean(link.TargetPath))
+	// Get file info with secure path validation
+	fullPath, err := validateSharePath(h.dataDir, link.TargetPath, "")
+	if err != nil {
+		http.Error(w, "Share target not found", http.StatusNotFound)
+		return
+	}
+
 	info, err := os.Stat(fullPath)
 	if err != nil {
 		http.Error(w, "File not found", http.StatusNotFound)
@@ -478,14 +485,9 @@ func (h *PublicHandler) ListPublicShare(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Build path
-	targetPath := filepath.Join(h.dataDir, filepath.Clean(link.TargetPath))
-	if subPath != "" {
-		targetPath = filepath.Join(targetPath, filepath.Clean(subPath))
-	}
-
-	// Ensure path is within share
-	if !strings.HasPrefix(targetPath, filepath.Join(h.dataDir, filepath.Clean(link.TargetPath))) {
+	// Validate path securely with symlink resolution
+	targetPath, err := validateSharePath(h.dataDir, link.TargetPath, subPath)
+	if err != nil {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
@@ -555,15 +557,9 @@ func (h *PublicHandler) DownloadPublicShare(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Build path
-	targetPath := filepath.Join(h.dataDir, filepath.Clean(link.TargetPath))
-	if subPath != "" {
-		targetPath = filepath.Join(targetPath, filepath.Clean(subPath))
-	}
-
-	// Ensure path is within share
-	basePath := filepath.Join(h.dataDir, filepath.Clean(link.TargetPath))
-	if !strings.HasPrefix(targetPath, basePath) {
+	// Validate path securely with symlink resolution
+	targetPath, err := validateSharePath(h.dataDir, link.TargetPath, subPath)
+	if err != nil {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
@@ -655,15 +651,9 @@ func (h *PublicHandler) PreviewPublicFile(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Build path
-	targetPath := filepath.Join(h.dataDir, filepath.Clean(link.TargetPath))
-	if subPath != "" {
-		targetPath = filepath.Join(targetPath, filepath.Clean(subPath))
-	}
-
-	// Ensure path is within share
-	basePath := filepath.Join(h.dataDir, filepath.Clean(link.TargetPath))
-	if !strings.HasPrefix(targetPath, basePath) {
+	// Validate path securely with symlink resolution
+	targetPath, err := validateSharePath(h.dataDir, link.TargetPath, subPath)
+	if err != nil {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
@@ -770,15 +760,9 @@ func (h *PublicHandler) UploadToPublicShare(w http.ResponseWriter, r *http.Reque
 	}
 	defer file.Close()
 
-	// Build target path
-	targetDir := filepath.Join(h.dataDir, filepath.Clean(link.TargetPath))
-	if subPath != "" {
-		targetDir = filepath.Join(targetDir, filepath.Clean(subPath))
-	}
-
-	// Ensure path is within share
-	basePath := filepath.Join(h.dataDir, filepath.Clean(link.TargetPath))
-	if !strings.HasPrefix(targetDir, basePath) {
+	// Validate path securely with symlink resolution
+	targetDir, err := validateSharePath(h.dataDir, link.TargetPath, subPath)
+	if err != nil {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
@@ -789,8 +773,15 @@ func (h *PublicHandler) UploadToPublicShare(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Sanitize the filename to prevent injection attacks
+	safeFilename := fileops.SanitizeFilename(header.Filename)
+	if safeFilename == "" {
+		http.Error(w, "Invalid filename", http.StatusBadRequest)
+		return
+	}
+
 	// Save file
-	targetPath := filepath.Join(targetDir, filepath.Base(header.Filename))
+	targetPath := filepath.Join(targetDir, safeFilename)
 	dst, err := os.Create(targetPath)
 	if err != nil {
 		http.Error(w, "Cannot create file", http.StatusInternalServerError)
@@ -820,6 +811,6 @@ func (h *PublicHandler) UploadToPublicShare(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"message":  "File uploaded successfully",
-		"filename": header.Filename,
+		"filename": safeFilename,
 	})
 }
