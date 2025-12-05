@@ -296,6 +296,7 @@ func getMimeType(filename string) string {
 // ========================================================================
 
 // ValidatePath ensures the path doesn't contain path traversal attacks
+// This version resolves symlinks to prevent symlink-based path traversal
 func ValidatePath(basePath, requestedPath string) (string, error) {
 	// Clean the paths
 	basePath = filepath.Clean(basePath)
@@ -304,12 +305,136 @@ func ValidatePath(basePath, requestedPath string) (string, error) {
 	// Join paths
 	fullPath := filepath.Join(basePath, requestedPath)
 
-	// Ensure the full path is within the base path
+	// First check: basic path traversal detection before symlink resolution
 	if !strings.HasPrefix(fullPath, basePath) {
 		return "", errors.New("invalid path: path traversal detected")
 	}
 
+	// Resolve the base path to handle any symlinks in the base itself
+	resolvedBase, err := filepath.EvalSymlinks(basePath)
+	if err != nil {
+		// If base path doesn't exist, that's a configuration error
+		return "", fmt.Errorf("invalid base path: %w", err)
+	}
+
+	// Try to resolve the full path - this catches symlinks pointing outside
+	resolvedFull, err := filepath.EvalSymlinks(fullPath)
+	if err != nil {
+		// Path doesn't exist yet - validate the existing parent
+		// Walk up to find the first existing directory
+		existingPath := fullPath
+		for {
+			parent := filepath.Dir(existingPath)
+			if parent == existingPath {
+				break
+			}
+			existingPath = parent
+			if _, statErr := os.Stat(existingPath); statErr == nil {
+				break
+			}
+		}
+
+		// Resolve the existing parent
+		resolvedParent, evalErr := filepath.EvalSymlinks(existingPath)
+		if evalErr != nil {
+			resolvedParent = existingPath
+		}
+
+		// Verify the existing parent is within bounds
+		if !strings.HasPrefix(resolvedParent, resolvedBase) && resolvedParent != resolvedBase {
+			return "", errors.New("invalid path: path traversal detected via symlink")
+		}
+
+		// Return the original (non-resolved) path since the target doesn't exist
+		return fullPath, nil
+	}
+
+	// Verify the resolved path is within the resolved base
+	if !strings.HasPrefix(resolvedFull, resolvedBase) && resolvedFull != resolvedBase {
+		return "", errors.New("invalid path: path traversal detected via symlink")
+	}
+
 	return fullPath, nil
+}
+
+// ValidatePathStrict is like ValidatePath but returns the resolved path
+// Use this when you need to operate on the actual file (e.g., reading/writing)
+func ValidatePathStrict(basePath, requestedPath string) (string, error) {
+	// Clean the paths
+	basePath = filepath.Clean(basePath)
+	requestedPath = filepath.Clean(requestedPath)
+
+	// Join paths
+	fullPath := filepath.Join(basePath, requestedPath)
+
+	// First check: basic path traversal detection
+	if !strings.HasPrefix(fullPath, basePath) {
+		return "", errors.New("invalid path: path traversal detected")
+	}
+
+	// Resolve the base path
+	resolvedBase, err := filepath.EvalSymlinks(basePath)
+	if err != nil {
+		return "", fmt.Errorf("invalid base path: %w", err)
+	}
+
+	// Resolve the full path - must exist for strict validation
+	resolvedFull, err := filepath.EvalSymlinks(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("path does not exist or is invalid: %w", err)
+	}
+
+	// Verify the resolved path is within the resolved base
+	if !strings.HasPrefix(resolvedFull, resolvedBase) && resolvedFull != resolvedBase {
+		return "", errors.New("invalid path: path traversal detected via symlink")
+	}
+
+	// Return the resolved path for strict operations
+	return resolvedFull, nil
+}
+
+// SanitizeFilename removes dangerous characters from a filename
+// This should be used on all user-provided filenames before use
+func SanitizeFilename(filename string) string {
+	// Remove any path components - only keep the base name
+	filename = filepath.Base(filename)
+
+	// Remove null bytes
+	filename = strings.ReplaceAll(filename, "\x00", "")
+
+	// Remove or replace dangerous characters
+	// These could be problematic on various filesystems or cause issues
+	dangerous := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|", "\n", "\r", "\t"}
+	for _, char := range dangerous {
+		filename = strings.ReplaceAll(filename, char, "_")
+	}
+
+	// Remove leading/trailing dots and spaces (problematic on Windows, hidden on Unix)
+	filename = strings.Trim(filename, ". ")
+
+	// Handle empty filename
+	if filename == "" {
+		filename = "unnamed"
+	}
+
+	// Limit filename length (most filesystems support 255 bytes)
+	if len(filename) > 240 {
+		ext := filepath.Ext(filename)
+		if len(ext) > 20 {
+			ext = ext[:20]
+		}
+		base := filename[:240-len(ext)]
+		filename = base + ext
+	}
+
+	return filename
+}
+
+// IsPathWithinBase checks if a path is within the base directory after symlink resolution
+// Returns true if safe, false if path escapes the base
+func IsPathWithinBase(basePath, checkPath string) bool {
+	_, err := ValidatePathStrict(basePath, checkPath)
+	return err == nil
 }
 
 // ========================================================================

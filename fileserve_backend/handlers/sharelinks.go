@@ -31,6 +31,86 @@ func NewShareLinkHandler(store storage.DataStore, dataDir string) *ShareLinkHand
 	return &ShareLinkHandler{store: store, dataDir: dataDir}
 }
 
+// validateSharePath securely validates a path within a share, preventing path traversal via symlinks
+// basePath is the base directory (e.g., dataDir)
+// sharePath is the relative path of the share target
+// subPath is the optional sub-path within the share (can be empty)
+// Returns the validated full path or an error
+func validateSharePath(basePath, sharePath, subPath string) (string, error) {
+	// Clean all paths
+	basePath = filepath.Clean(basePath)
+	sharePath = filepath.Clean(sharePath)
+
+	// Build the share root path
+	shareRoot := filepath.Join(basePath, sharePath)
+
+	// Resolve the base and share root to handle any existing symlinks
+	resolvedBase, err := filepath.EvalSymlinks(basePath)
+	if err != nil {
+		return "", fmt.Errorf("invalid base path: %w", err)
+	}
+
+	resolvedShareRoot, err := filepath.EvalSymlinks(shareRoot)
+	if err != nil {
+		return "", fmt.Errorf("share target not found: %w", err)
+	}
+
+	// Verify share root is within base
+	if !strings.HasPrefix(resolvedShareRoot, resolvedBase) && resolvedShareRoot != resolvedBase {
+		return "", errors.New("invalid share path: outside base directory")
+	}
+
+	// If no subPath, return the share root
+	if subPath == "" {
+		return shareRoot, nil
+	}
+
+	// Clean and join the subPath
+	subPath = filepath.Clean(subPath)
+	fullPath := filepath.Join(shareRoot, subPath)
+
+	// Basic traversal check before symlink resolution
+	if !strings.HasPrefix(fullPath, shareRoot) {
+		return "", errors.New("invalid path: path traversal detected")
+	}
+
+	// Try to resolve the full path
+	resolvedFull, err := filepath.EvalSymlinks(fullPath)
+	if err != nil {
+		// Path doesn't exist - validate existing parent
+		existingPath := fullPath
+		for {
+			parent := filepath.Dir(existingPath)
+			if parent == existingPath {
+				break
+			}
+			existingPath = parent
+			if _, statErr := os.Stat(existingPath); statErr == nil {
+				break
+			}
+		}
+
+		resolvedParent, evalErr := filepath.EvalSymlinks(existingPath)
+		if evalErr != nil {
+			resolvedParent = existingPath
+		}
+
+		// Verify existing parent is within share root
+		if !strings.HasPrefix(resolvedParent, resolvedShareRoot) && resolvedParent != resolvedShareRoot {
+			return "", errors.New("invalid path: path traversal detected via symlink")
+		}
+
+		return fullPath, nil
+	}
+
+	// Verify resolved path is within resolved share root
+	if !strings.HasPrefix(resolvedFull, resolvedShareRoot) && resolvedFull != resolvedShareRoot {
+		return "", errors.New("invalid path: path traversal detected via symlink")
+	}
+
+	return fullPath, nil
+}
+
 // generateToken generates a URL-safe random token
 func generateToken() string {
 	b := make([]byte, 24)
