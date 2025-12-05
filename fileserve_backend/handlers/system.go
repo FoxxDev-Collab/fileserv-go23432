@@ -16,6 +16,87 @@ import (
 	"fileserv/models"
 )
 
+// Service name validation regex - only alphanumeric, dashes, underscores, and @
+// systemd service names follow a specific pattern
+var serviceNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_@.-]*$`)
+
+// validateServiceName validates a systemd service name
+func validateServiceName(name string) error {
+	if name == "" {
+		return fmt.Errorf("service name is required")
+	}
+
+	// Max length check
+	if len(name) > 256 {
+		return fmt.Errorf("service name too long")
+	}
+
+	// Check for path traversal
+	if strings.Contains(name, "/") || strings.Contains(name, "..") {
+		return fmt.Errorf("invalid service name: path traversal not allowed")
+	}
+
+	// Check regex pattern
+	if !serviceNameRegex.MatchString(name) {
+		return fmt.Errorf("invalid service name: must contain only alphanumeric characters, dashes, underscores, dots, and @")
+	}
+
+	// Prevent special system services
+	blockedPrefixes := []string{"init", "rescue", "emergency"}
+	lowerName := strings.ToLower(name)
+	for _, prefix := range blockedPrefixes {
+		if strings.HasPrefix(lowerName, prefix) {
+			return fmt.Errorf("access to system service '%s' is restricted", name)
+		}
+	}
+
+	return nil
+}
+
+// Valid dmesg log levels
+var validDmesgLevels = map[string]bool{
+	"emerg": true, "alert": true, "crit": true, "err": true,
+	"warn": true, "notice": true, "info": true, "debug": true,
+}
+
+// Valid dmesg facilities
+var validDmesgFacilities = map[string]bool{
+	"kern": true, "user": true, "mail": true, "daemon": true,
+	"auth": true, "syslog": true, "lpr": true, "news": true,
+}
+
+// validateDmesgLevel validates a dmesg log level
+func validateDmesgLevel(level string) error {
+	if level == "" {
+		return nil // Empty is allowed
+	}
+
+	// Allow comma-separated levels
+	for _, l := range strings.Split(level, ",") {
+		l = strings.TrimSpace(l)
+		if l != "" && !validDmesgLevels[l] {
+			return fmt.Errorf("invalid dmesg level: %s", l)
+		}
+	}
+	return nil
+}
+
+// validateDmesgFacility validates a dmesg facility
+func validateDmesgFacility(facility string) error {
+	if facility == "" {
+		return nil // Empty is allowed
+	}
+
+	// Allow comma-separated facilities
+	for _, f := range strings.Split(facility, ",") {
+		f = strings.TrimSpace(f)
+		if f != "" && !validDmesgFacilities[f] {
+			return fmt.Errorf("invalid dmesg facility: %s", f)
+		}
+	}
+	return nil
+}
+
 // GetSystemResources returns system resource information
 func GetSystemResources() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -310,9 +391,9 @@ func ControlService() http.HandlerFunc {
 			return
 		}
 
-		// Sanitize service name
-		if strings.Contains(req.Service, "/") || strings.Contains(req.Service, "..") {
-			http.Error(w, "Invalid service name", http.StatusBadRequest)
+		// Validate service name using comprehensive validation
+		if err := validateServiceName(req.Service); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -638,6 +719,18 @@ func GetDMESGLogs() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		level := r.URL.Query().Get("level")
 		facility := r.URL.Query().Get("facility")
+
+		// Validate level parameter
+		if err := validateDmesgLevel(level); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate facility parameter
+		if err := validateDmesgFacility(facility); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		args := []string{"--time-format=iso", "-T"}
 

@@ -1735,6 +1735,32 @@ func Mount() http.HandlerFunc {
 			return
 		}
 
+		// Validate device path
+		if err := validateDevicePath(req.Device); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate mount point
+		if err := validateMountPoint(req.MountPoint); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate filesystem type
+		if err := validateFSType(req.FSType); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate and sanitize mount options
+		validatedOptions, err := validateMountOptions(req.Options)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.Options = validatedOptions
+
 		// Validate mount point exists
 		if _, err := os.Stat(req.MountPoint); os.IsNotExist(err) {
 			// Try to create it
@@ -1763,7 +1789,11 @@ func Mount() http.HandlerFunc {
 
 		// Add to fstab if requested
 		if req.Persistent {
-			addToFstab(req)
+			if err := addToFstab(req); err != nil {
+				// Mount succeeded but fstab failed - log warning
+				http.Error(w, fmt.Sprintf("Mount succeeded but failed to add to fstab: %v", err), http.StatusInternalServerError)
+				return
+			}
 		}
 
 		w.WriteHeader(http.StatusOK)
@@ -1772,7 +1802,30 @@ func Mount() http.HandlerFunc {
 }
 
 func addToFstab(req models.MountRequest) error {
-	entry := fmt.Sprintf("%s %s %s %s 0 0\n", req.Device, req.MountPoint, req.FSType, req.Options)
+	// Re-validate all inputs before writing to fstab (defense in depth)
+	if err := validateDevicePath(req.Device); err != nil {
+		return fmt.Errorf("invalid device: %w", err)
+	}
+	if err := validateMountPoint(req.MountPoint); err != nil {
+		return fmt.Errorf("invalid mount point: %w", err)
+	}
+	if err := validateFSType(req.FSType); err != nil {
+		return fmt.Errorf("invalid filesystem type: %w", err)
+	}
+	validatedOptions, err := validateMountOptions(req.Options)
+	if err != nil {
+		return fmt.Errorf("invalid options: %w", err)
+	}
+
+	// Use safe default for empty fstype
+	fstype := req.FSType
+	if fstype == "" {
+		fstype = "auto"
+	}
+
+	// Construct fstab entry with validated inputs
+	// Format: device mountpoint fstype options dump pass
+	entry := fmt.Sprintf("%s %s %s %s 0 0\n", req.Device, req.MountPoint, fstype, validatedOptions)
 
 	f, err := os.OpenFile("/etc/fstab", os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
@@ -1790,6 +1843,32 @@ func Unmount() http.HandlerFunc {
 		mountPoint := r.URL.Query().Get("path")
 		if mountPoint == "" {
 			http.Error(w, "Mount point required", http.StatusBadRequest)
+			return
+		}
+
+		// Validate mount point path
+		if err := validateMountPoint(mountPoint); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Verify it's actually a mount point
+		mounts, err := getMountPoints()
+		if err != nil {
+			http.Error(w, "Failed to check mount points", http.StatusInternalServerError)
+			return
+		}
+
+		isMounted := false
+		for _, m := range mounts {
+			if m.MountPath == mountPoint {
+				isMounted = true
+				break
+			}
+		}
+
+		if !isMounted {
+			http.Error(w, "Path is not a mount point", http.StatusBadRequest)
 			return
 		}
 

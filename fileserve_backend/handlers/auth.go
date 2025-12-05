@@ -196,6 +196,20 @@ func ChangePassword(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
+		// SECURITY: Validate password doesn't contain dangerous characters
+		// Newlines could inject additional user:password pairs into chpasswd
+		// Colons could modify the username:password format
+		if strings.ContainsAny(req.NewPassword, "\n\r:") {
+			http.Error(w, "Password cannot contain newlines or colons", http.StatusBadRequest)
+			return
+		}
+
+		// Also validate the current password doesn't have injection characters
+		if strings.ContainsAny(req.CurrentPassword, "\n\r:") {
+			http.Error(w, "Invalid password format", http.StatusBadRequest)
+			return
+		}
+
 		// Verify current password by attempting PAM authentication
 		if cfg.UsePAM {
 			_, err := auth.AuthenticatePAM(userCtx.Username, req.CurrentPassword)
@@ -205,6 +219,7 @@ func ChangePassword(cfg *config.Config) http.HandlerFunc {
 			}
 
 			// Use chpasswd to change password
+			// SECURITY: Username comes from verified JWT context, password validated above
 			cmd := exec.Command("chpasswd")
 			cmd.Stdin = strings.NewReader(fmt.Sprintf("%s:%s", userCtx.Username, req.NewPassword))
 			if output, err := cmd.CombinedOutput(); err != nil {

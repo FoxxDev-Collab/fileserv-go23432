@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"io/fs"
 	"log"
@@ -21,6 +23,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 )
+
+// generateSecureSecret generates a cryptographically secure random secret
+func generateSecureSecret() (string, error) {
+	bytes := make([]byte, 32) // 256 bits
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("failed to generate secure secret: %w", err)
+	}
+	return base64.URLEncoding.EncodeToString(bytes), nil
+}
 
 //go:embed static/*
 var staticFiles embed.FS
@@ -72,9 +83,15 @@ func main() {
 		jwtSecret = cfg.JWTSecret
 	}
 	if jwtSecret == "" {
-		// Generate a temporary secret for first run (will be replaced during setup)
-		log.Println("Warning: No JWT secret configured. A temporary secret will be used until setup is complete.")
-		jwtSecret = "temporary-secret-complete-setup-wizard"
+		// SECURITY: Generate a cryptographically secure random secret instead of hardcoded value
+		// This secret is ephemeral - it will be regenerated on each restart until setup completes
+		log.Println("Warning: No JWT secret configured. Generating secure temporary secret.")
+		var err error
+		jwtSecret, err = generateSecureSecret()
+		if err != nil {
+			log.Fatalf("CRITICAL: Failed to generate JWT secret: %v", err)
+		}
+		log.Println("Generated secure temporary JWT secret. Note: Sessions will not persist across restarts until setup is complete.")
 	}
 
 	// Setup router
