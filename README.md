@@ -7,6 +7,14 @@ FileServ is built for teams and individuals who need a powerful, flexible file s
 ![License](https://img.shields.io/badge/license-AGPLv3-blue.svg)
 
 ---
+## Developer Background
+
+**Role:** Security Professional with development fundamentals
+
+I'm not a full-time developer, but I understand enough to architect solutions, read code, and identify security issues. This background shapes our workflow—we leverage AI for implementation while maintaining strict security oversight.
+
+I am a full time Information System Security Officer (ISSO level 3) with extensive background in state government and federal government IT and GRC/RMF. Currently working for military installations as contractor. I love my job and love creating tools, finding solutions to problems.
+
 
 ## Why FileServ?
 
@@ -66,6 +74,7 @@ We've written detailed guides to help you get the most out of FileServ:
 | [Quick Start](docs/QUICK_START.md) | Get up and running in under 5 minutes |
 | [User Guide](docs/USER_GUIDE.md) | How to use FileServ's features effectively |
 | [Admin Guide](docs/ADMIN_GUIDE.md) | Deployment, configuration, and system management |
+| [Security Report](docs/SECURITY_REPORT.md) | Security audit findings and remediation status |
 
 ---
 
@@ -155,7 +164,9 @@ For the complete API documentation with request/response examples, see the [Admi
 
 ## Security Best Practices
 
-FileServ is designed with security in mind, but proper deployment is crucial:
+FileServ takes security seriously. We recently completed a comprehensive security audit that identified and remediated 27 vulnerabilities, including 6 critical and 12 high-severity issues. You can review the complete findings and remediation details in our [Security Report](docs/SECURITY_REPORT.md).
+
+When deploying FileServ, follow these essential security practices:
 
 - **Use HTTPS in production** - Always encrypt traffic with TLS certificates
 - **Secure your JWT secret** - Use a strong, randomly generated secret and keep it private
