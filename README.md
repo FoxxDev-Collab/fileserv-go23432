@@ -49,8 +49,6 @@ Upload, organize, and manage your files through a responsive web interface. Drag
 ### Flexible Storage Zones
 Define storage zones that match how you actually work. Create personal spaces for individual users, shared zones for team collaboration, and public areas for broader access. Each zone can have its own permissions, quotas, and access rules.
 
-### Smart Web Sharing
-Share files and folders with anyone using secure, customizable links. Set passwords, expiration dates, and download limits. Track who's viewing and downloading your content, and even allow uploads to shared folders for easy collaboration.
 
 ### Network Share Integration
 Manage SMB and NFS shares directly from the interface. FileServ integrates with your existing network infrastructure, making it easy to provide both web and traditional file access.
