@@ -35,7 +35,11 @@ I'm a full time Information System Security Officer (ISSO level 3) with extensiv
 
 ## Why FileServ?
 
-I built FileServ because existing solutions were either too restrictive, too expensive, or required handing over your data to third parties. FileServ runs entirely on your infrastructure, so you have complete ownership of your files and who can access them.
+Simple, I fell in love with the simplicity of Rocky Linux and felt that it deserves better tooling. My understanding of Enterprise Linux came from using Rocky for the past few years. After using True NAS Scale at home, I wanted something better and was oriented in the direction my home lab was going, Enterprise Linux. 
+
+I used cockpit for a few months, with its simple interface I was able to create my NAS with much more ease. And then I thought about making a much more powerful version of Cockpit using Claude Code. 
+
+This project was made for fun and quickly became something so much more than simply managing a file server. 
 
 **Key Capabilities:**
 
