@@ -1,188 +1,196 @@
 # FileServ
 
-A modern, self-hosted file sharing and storage management platform built with Go and Next.js.
+**A self-hosted file sharing and storage management platform that puts you in control.**
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+FileServ is built for teams and individuals who need a powerful, flexible file sharing solution without sacrificing privacy or control. Whether you're managing personal files, collaborating with a team, or serving content to the public, FileServ provides the tools you need with a clean, modern interface.
 
----
-
-## Features
-
-### File Management
-- Upload, download, and organize files via web interface
-- Drag-and-drop file uploads
-- Search and filter files
-- Create and manage folders
-
-### Storage Zones
-- Admin-defined storage pools and zones
-- Personal, group, and public zone types
-- Auto-provisioning for user directories
-- Per-zone access control
-
-### Web Sharing
-- Create shareable links for files and folders
-- Password protection with optional expiration
-- Download limits and view tracking
-- Preview support for images, PDFs, and more
-- Allow uploads to shared folders
-
-### Network Shares
-- SMB (Samba) share management
-- NFS export management
-- Integrated access control
-
-### Administration
-- User and group management
-- Disk and volume monitoring
-- LVM management
-- Quota configuration
-- System resource monitoring
-- Service management
+![License](https://img.shields.io/badge/license-AGPLv3-blue.svg)
 
 ---
 
-## Quick Start
+## Why FileServ?
+
+We built FileServ because existing solutions were either too restrictive, too expensive, or required handing over your data to third parties. FileServ runs entirely on your infrastructure, giving you complete ownership of your files and who can access them.
+
+**Key Capabilities:**
+
+### Intuitive File Management
+Upload, organize, and manage your files through a responsive web interface. Drag and drop files, create folders, search across your storage, and preview common file types—all without installing additional software.
+
+### Flexible Storage Zones
+Define storage zones that match how your team actually works. Create personal spaces for individual users, shared zones for team collaboration, and public areas for broader access. Each zone can have its own permissions, quotas, and access rules.
+
+### Smart Web Sharing
+Share files and folders with anyone using secure, customizable links. Set passwords, expiration dates, and download limits. Track who's viewing and downloading your content, and even allow uploads to shared folders for easy collaboration.
+
+### Network Share Integration
+Manage SMB and NFS shares directly from the interface. FileServ integrates with your existing network infrastructure, making it easy to provide both web and traditional file access.
+
+### Comprehensive Administration
+Monitor disk usage, manage users and groups, configure quotas, and keep tabs on system resources—all from a unified dashboard. FileServ supports LVM for flexible storage management and provides detailed visibility into your system's health
+
+---
+
+## Getting Started
+
+The fastest way to get FileServ running is to build both components and start the server. You'll need Go 1.21+ and Node.js 18+ installed.
 
 ```bash
-# Build backend
+# Build the backend
 cd fileserve_backend
 go build -o fileserv .
 
-# Build frontend
+# Build the frontend
 cd ../fileserve_frontend
 npm install
 npm run build
 
-# Copy frontend to backend static folder
+# Deploy frontend assets to the backend
 cp -r out/* ../fileserve_backend/static/
 
-# Run
+# Start the server
 cd ../fileserve_backend
 ./fileserv
 ```
 
-Open `http://localhost:8080` and login with your system credentials (root or wheel group members have admin access).
+Once running, open your browser to `http://localhost:8080`. You can log in using your system credentials—users in the root or wheel group automatically get admin access.
 
 ---
 
-## Documentation
+## Learn More
 
-| Document | Description |
-|----------|-------------|
-| [Quick Start](docs/QUICK_START.md) | Get running in 5 minutes |
-| [User Guide](docs/USER_GUIDE.md) | Complete user documentation |
-| [Admin Guide](docs/ADMIN_GUIDE.md) | Deployment and administration |
+We've written detailed guides to help you get the most out of FileServ:
+
+| Guide | What You'll Learn |
+|-------|-------------------|
+| [Quick Start](docs/QUICK_START.md) | Get up and running in under 5 minutes |
+| [User Guide](docs/USER_GUIDE.md) | How to use FileServ's features effectively |
+| [Admin Guide](docs/ADMIN_GUIDE.md) | Deployment, configuration, and system management |
 
 ---
 
 ## Configuration
 
-### Environment Variables
+FileServ uses environment variables for configuration, making it easy to customize without editing code:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `FILESERV_PORT` | `8080` | HTTP server port |
-| `FILESERV_DATA_DIR` | `./data` | Default data directory |
-| `FILESERV_STORAGE_FILE` | `./storage.json` | Storage database path |
-| `FILESERV_JWT_SECRET` | (auto) | JWT signing secret |
-| `FILESERV_TLS_CERT` | - | TLS certificate path |
-| `FILESERV_TLS_KEY` | - | TLS private key path |
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FILESERV_PORT` | `8080` | The port the HTTP server listens on |
+| `FILESERV_DATA_DIR` | `./data` | Where to store uploaded files |
+| `FILESERV_STORAGE_FILE` | `./storage.json` | Path to the metadata database |
+| `FILESERV_JWT_SECRET` | (generated) | Secret key for signing authentication tokens |
+| `FILESERV_TLS_CERT` | - | Path to TLS certificate for HTTPS |
+| `FILESERV_TLS_KEY` | - | Path to TLS private key for HTTPS |
+
+You can set these in your shell, systemd service file, or container environment depending on how you're deploying FileServ.
 
 ---
 
-## Project Structure
+## How It's Built
 
+FileServ combines a high-performance Go backend with a modern React frontend to deliver a fast, responsive experience.
+
+**Backend (Go):**
+- **Go** - Efficient, concurrent file operations and HTTP handling
+- **Chi Router** - Lightweight, composable HTTP routing
+- **JWT Authentication** - Secure, stateless session management
+- **bcrypt** - Industry-standard password hashing
+
+**Frontend (Next.js):**
+- **Next.js 15** - Modern React framework with server-side rendering
+- **TypeScript** - Type safety and better developer experience
+- **Tailwind CSS** - Utility-first styling for rapid UI development
+- **shadcn/ui** - Beautifully designed, accessible components
+- **Lucide Icons** - Clean, consistent iconography
+
+**Architecture:**
 ```
 fileserv-go/
-├── fileserve_backend/      # Go backend
-│   ├── config/             # Configuration
-│   ├── handlers/           # HTTP handlers
-│   ├── internal/fileops/   # File operations
-│   ├── middleware/         # Auth, CORS, logging
-│   ├── models/             # Data models
-│   ├── storage/            # Data persistence
-│   └── static/             # Frontend build output
+├── fileserve_backend/      # Go HTTP server and API
+│   ├── config/             # Configuration management
+│   ├── handlers/           # HTTP request handlers
+│   ├── internal/fileops/   # File operation logic
+│   ├── middleware/         # Auth, CORS, logging, security
+│   ├── models/             # Data structures
+│   ├── storage/            # SQLite-based persistence
+│   └── static/             # Compiled frontend assets
 │
-├── fileserve_frontend/     # Next.js frontend
-│   ├── app/                # Pages (App Router)
-│   ├── components/         # React components
-│   └── lib/                # Utilities and API client
+├── fileserve_frontend/     # Next.js web application
+│   ├── app/                # Application pages (App Router)
+│   ├── components/         # Reusable React components
+│   └── lib/                # API client and utilities
 │
-└── docs/                   # Documentation
+└── docs/                   # User and admin documentation
 ```
 
 ---
 
-## API Overview
+## API Reference
 
-### Authentication
-- `POST /api/auth/login` - Login
-- `POST /api/auth/logout` - Logout
-- `GET /api/auth/me` - Current user
+FileServ exposes a RESTful API for programmatic access. Here are some key endpoints to get you started:
 
-### Zone Files
-- `GET /api/zones/accessible` - List accessible zones
-- `GET /api/zones/{id}/files` - List files
-- `POST /api/zones/{id}/files/{path}` - Upload file
-- `DELETE /api/zones/{id}/files/{path}` - Delete file
+**Authentication:**
+- `POST /api/auth/login` - Authenticate and receive a JWT token
+- `POST /api/auth/logout` - Invalidate current session
+- `GET /api/auth/me` - Get current user information
 
-### Share Links
-- `GET /api/links` - List my shares
-- `POST /api/links` - Create share
-- `DELETE /api/links/{id}` - Delete share
+**File Operations:**
+- `GET /api/zones/accessible` - List storage zones you have access to
+- `GET /api/zones/{id}/files` - List files in a zone
+- `POST /api/zones/{id}/files/{path}` - Upload a file
+- `DELETE /api/zones/{id}/files/{path}` - Delete a file
 
-### Public Access
-- `GET /s/{token}` - View share
-- `GET /s/{token}/download` - Download
+**Share Management:**
+- `GET /api/links` - List your shared links
+- `POST /api/links` - Create a new share link
+- `DELETE /api/links/{id}` - Remove a share link
 
-See [API Reference](docs/ADMIN_GUIDE.md#api-reference) for complete documentation.
+**Public Sharing:**
+- `GET /s/{token}` - View a shared file or folder
+- `GET /s/{token}/download` - Download shared content
 
----
-
-## Tech Stack
-
-### Backend
-- **Go** - High-performance backend
-- **Chi** - Lightweight HTTP router
-- **JWT** - Stateless authentication
-- **bcrypt** - Password hashing
-
-### Frontend
-- **Next.js 15** - React framework
-- **TypeScript** - Type safety
-- **Tailwind CSS** - Styling
-- **shadcn/ui** - UI components
-- **Lucide** - Icons
+For the complete API documentation with request/response examples, see the [Admin Guide](docs/ADMIN_GUIDE.md#api-reference).
 
 ---
 
-## Security Considerations
+## Security Best Practices
 
-- Always use HTTPS in production
-- Use strong JWT secrets
-- Implement proper firewall rules
-- Regular backups of storage.json and data
-- Only root and wheel group users have admin access
+FileServ is designed with security in mind, but proper deployment is crucial:
+
+- **Use HTTPS in production** - Always encrypt traffic with TLS certificates
+- **Secure your JWT secret** - Use a strong, randomly generated secret and keep it private
+- **Configure your firewall** - Only expose necessary ports to the internet
+- **Regular backups** - Back up your `storage.json` database and data directory regularly
+- **Access control** - Review who has admin access (root and wheel group members by default)
+- **Keep dependencies updated** - Stay current with security patches for Go and Node.js
+
+FileServ authenticates against your system's user database, so your existing user security policies apply automatically.
 
 ---
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+FileServ is free software licensed under the **GNU Affero General Public License v3.0 (AGPLv3)**.
+
+This means you're free to use, modify, and distribute FileServ, but if you run a modified version on a server and let others interact with it, you must share your changes. This ensures that improvements to FileServ benefit the entire community.
+
+See the [LICENSE](LICENSE) file for the complete terms.
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Please read our contributing guidelines before submitting PRs.
+We welcome contributions from the community! Whether you're fixing a bug, adding a feature, or improving documentation, your help makes FileServ better for everyone.
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests
-5. Submit a pull request
+**How to contribute:**
+
+1. **Fork the repository** and create a new branch for your work
+2. **Make your changes** with clear, descriptive commits
+3. **Test thoroughly** to ensure nothing breaks
+4. **Submit a pull request** with a description of what you've changed and why
+
+Before starting major work, consider opening an issue to discuss your plans with the maintainers. This helps avoid duplicate effort and ensures your contribution aligns with the project's direction.
 
 ---
 
-*FileServ - Modern File Sharing Made Simple*
+*Built with ❤️ for people who value privacy and control over their data.*
