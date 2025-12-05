@@ -187,4 +187,31 @@
     @apply bg-background text-foreground;
     letter-spacing: var(--tracking-normal);
   }
+
+  /* Prevent text cursor on non-editable UI elements */
+  *:not(input):not(textarea):not([contenteditable="true"]):not(pre):not(code) {
+    cursor: default;
+  }
+
+  /* Allow text cursor for interactive/editable elements */
+  input,
+  textarea,
+  [contenteditable="true"],
+  pre,
+  code,
+  .prose,
+  .prose * {
+    cursor: text;
+  }
+
+  /* Buttons and interactive elements should show pointer */
+  button,
+  a,
+  [role="button"],
+  [role="link"],
+  [role="menuitem"],
+  [role="option"],
+  .cursor-pointer {
+    cursor: pointer;
+  }
 }
