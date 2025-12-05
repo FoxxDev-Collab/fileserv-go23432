@@ -75,7 +75,7 @@ We've written detailed guides to help you get the most out of FileServ:
 | [User Guide](docs/USER_GUIDE.md) | How to use FileServ's features effectively |
 | [Admin Guide](docs/ADMIN_GUIDE.md) | Deployment, configuration, and system management |
 | [Security Report](docs/SECURITY_REPORT.md) | Security audit findings and remediation status |
-
+| [Dev Sec Ops](docs/ADMIN_GUIDE.md) | Developmemt with focused Security in mind |
 ---
 
 ## Configuration
