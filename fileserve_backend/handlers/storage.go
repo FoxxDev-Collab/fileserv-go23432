@@ -804,6 +804,494 @@ func getRAIDArrays() ([]models.RAIDArray, error) {
 	return raids, nil
 }
 
+// GetRAIDStatus returns detailed status for a RAID array
+func GetRAIDStatus() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.URL.Query().Get("name")
+		if name == "" {
+			http.Error(w, "RAID array name is required", http.StatusBadRequest)
+			return
+		}
+
+		// Ensure it starts with /dev/
+		if !strings.HasPrefix(name, "/dev/") {
+			name = "/dev/" + name
+		}
+
+		output, err := exec.Command("mdadm", "--detail", name).CombinedOutput()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get RAID status: %s - %s", err.Error(), string(output)), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"name":   name,
+			"detail": string(output),
+		})
+	}
+}
+
+// GetAvailableDevicesForRAID returns devices available for RAID creation
+func GetAvailableDevicesForRAID() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		type AvailableDevice struct {
+			Path      string `json:"path"`
+			Size      uint64 `json:"size"`
+			SizeHuman string `json:"size_human"`
+			Model     string `json:"model"`
+			Type      string `json:"type"`
+			InUse     bool   `json:"in_use"`
+			InRAID    string `json:"in_raid,omitempty"`
+		}
+
+		var available []AvailableDevice
+
+		// Get all block devices using lsblk
+		output, err := exec.Command("lsblk", "-J", "-b", "-o", "NAME,SIZE,TYPE,MODEL,MOUNTPOINT,FSTYPE").Output()
+		if err != nil {
+			http.Error(w, "Failed to list devices", http.StatusInternalServerError)
+			return
+		}
+
+		var lsblkOutput struct {
+			BlockDevices []struct {
+				Name       string `json:"name"`
+				Size       string `json:"size"`
+				Type       string `json:"type"`
+				Model      string `json:"model"`
+				MountPoint string `json:"mountpoint"`
+				FSType     string `json:"fstype"`
+				Children   []struct {
+					Name       string `json:"name"`
+					Size       string `json:"size"`
+					Type       string `json:"type"`
+					MountPoint string `json:"mountpoint"`
+					FSType     string `json:"fstype"`
+				} `json:"children"`
+			} `json:"blockdevices"`
+		}
+
+		if err := json.Unmarshal(output, &lsblkOutput); err != nil {
+			http.Error(w, "Failed to parse device list", http.StatusInternalServerError)
+			return
+		}
+
+		// Get existing RAID arrays
+		raids, _ := getRAIDArrays()
+		raidMembers := make(map[string]string) // device -> raid name
+		for _, raid := range raids {
+			for _, member := range raid.Members {
+				raidMembers[member.Device] = raid.Name
+			}
+		}
+
+		for _, dev := range lsblkOutput.BlockDevices {
+			if dev.Type != "disk" {
+				continue
+			}
+
+			// Check whole disk
+			path := "/dev/" + dev.Name
+			size, _ := strconv.ParseUint(dev.Size, 10, 64)
+
+			// A disk is available if it's not mounted and has no filesystem
+			// or if it has partitions that are not mounted
+			inUse := dev.MountPoint != "" || (dev.FSType != "" && dev.FSType != "linux_raid_member")
+
+			// Check if it's part of a RAID
+			raidName := ""
+			if dev.FSType == "linux_raid_member" {
+				if rn, ok := raidMembers[path]; ok {
+					raidName = rn
+				}
+			}
+
+			if !inUse && raidName == "" {
+				available = append(available, AvailableDevice{
+					Path:      path,
+					Size:      size,
+					SizeHuman: formatBytes(size),
+					Model:     dev.Model,
+					Type:      "disk",
+					InUse:     false,
+				})
+			}
+
+			// Also check partitions
+			for _, child := range dev.Children {
+				childPath := "/dev/" + child.Name
+				childSize, _ := strconv.ParseUint(child.Size, 10, 64)
+
+				childInUse := child.MountPoint != "" || (child.FSType != "" && child.FSType != "linux_raid_member")
+				childRaidName := ""
+				if child.FSType == "linux_raid_member" {
+					if rn, ok := raidMembers[childPath]; ok {
+						childRaidName = rn
+					}
+				}
+
+				if !childInUse && childRaidName == "" {
+					available = append(available, AvailableDevice{
+						Path:      childPath,
+						Size:      childSize,
+						SizeHuman: formatBytes(childSize),
+						Model:     dev.Model,
+						Type:      "partition",
+						InUse:     false,
+					})
+				} else if childRaidName != "" {
+					available = append(available, AvailableDevice{
+						Path:      childPath,
+						Size:      childSize,
+						SizeHuman: formatBytes(childSize),
+						Model:     dev.Model,
+						Type:      "partition",
+						InUse:     true,
+						InRAID:    childRaidName,
+					})
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(available)
+	}
+}
+
+// CreateRAIDArray creates a new software RAID array
+func CreateRAIDArray() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req models.CreateRAIDRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Validate request
+		if req.Name == "" {
+			http.Error(w, "Array name is required", http.StatusBadRequest)
+			return
+		}
+		if req.Level == "" {
+			http.Error(w, "RAID level is required", http.StatusBadRequest)
+			return
+		}
+		if len(req.Devices) < 2 {
+			http.Error(w, "At least 2 devices are required", http.StatusBadRequest)
+			return
+		}
+
+		// Validate RAID level
+		validLevels := map[string]bool{
+			"raid0": true, "0": true,
+			"raid1": true, "1": true,
+			"raid5": true, "5": true,
+			"raid6": true, "6": true,
+			"raid10": true, "10": true,
+		}
+		if !validLevels[strings.ToLower(req.Level)] {
+			http.Error(w, "Invalid RAID level. Supported: raid0, raid1, raid5, raid6, raid10", http.StatusBadRequest)
+			return
+		}
+
+		// Normalize RAID level (remove 'raid' prefix if present)
+		level := strings.ToLower(req.Level)
+		if strings.HasPrefix(level, "raid") {
+			level = strings.TrimPrefix(level, "raid")
+		}
+
+		// Validate minimum device count for each level
+		minDevices := map[string]int{
+			"0":  2,
+			"1":  2,
+			"5":  3,
+			"6":  4,
+			"10": 4,
+		}
+		if min, ok := minDevices[level]; ok && len(req.Devices) < min {
+			http.Error(w, fmt.Sprintf("RAID%s requires at least %d devices", level, min), http.StatusBadRequest)
+			return
+		}
+
+		// Build mdadm command
+		// Ensure name starts with md
+		name := req.Name
+		if !strings.HasPrefix(name, "md") {
+			name = "md" + name
+		}
+		devicePath := "/dev/" + name
+
+		args := []string{
+			"--create", devicePath,
+			"--level=" + level,
+			"--raid-devices=" + strconv.Itoa(len(req.Devices)),
+			"--run", // Don't prompt
+		}
+
+		// Add chunk size if specified
+		if req.Chunk != "" {
+			args = append(args, "--chunk="+req.Chunk)
+		}
+
+		// Add spare devices if specified
+		if len(req.Spares) > 0 {
+			args = append(args, "--spare-devices="+strconv.Itoa(len(req.Spares)))
+		}
+
+		// Add main devices
+		args = append(args, req.Devices...)
+
+		// Add spare devices
+		args = append(args, req.Spares...)
+
+		// Run mdadm
+		output, err := exec.Command("mdadm", args...).CombinedOutput()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to create RAID array: %s - %s", err.Error(), string(output)), http.StatusInternalServerError)
+			return
+		}
+
+		// Save the configuration to mdadm.conf
+		go func() {
+			// Get the detail of the new array
+			detail, _ := exec.Command("mdadm", "--detail", "--scan", devicePath).Output()
+			if len(detail) > 0 {
+				// Append to mdadm.conf
+				f, err := os.OpenFile("/etc/mdadm.conf", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				if err == nil {
+					f.WriteString(string(detail))
+					f.Close()
+				}
+			}
+		}()
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": fmt.Sprintf("RAID array %s created successfully", devicePath),
+			"device":  devicePath,
+		})
+	}
+}
+
+// StopRAIDArray stops a RAID array (makes it inactive)
+func StopRAIDArray() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.Name == "" {
+			http.Error(w, "Array name is required", http.StatusBadRequest)
+			return
+		}
+
+		name := req.Name
+		if !strings.HasPrefix(name, "/dev/") {
+			name = "/dev/" + name
+		}
+
+		// Stop the array
+		output, err := exec.Command("mdadm", "--stop", name).CombinedOutput()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to stop RAID array: %s - %s", err.Error(), string(output)), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": fmt.Sprintf("RAID array %s stopped", name),
+		})
+	}
+}
+
+// RemoveRAIDArray removes a RAID array completely
+func RemoveRAIDArray() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.URL.Query().Get("name")
+		force := r.URL.Query().Get("force") == "true"
+
+		if name == "" {
+			http.Error(w, "Array name is required", http.StatusBadRequest)
+			return
+		}
+
+		if !strings.HasPrefix(name, "/dev/") {
+			name = "/dev/" + name
+		}
+
+		// Get array members before stopping
+		raids, err := getRAIDArrays()
+		if err != nil {
+			http.Error(w, "Failed to get RAID info", http.StatusInternalServerError)
+			return
+		}
+
+		var targetRaid *models.RAIDArray
+		for _, raid := range raids {
+			if raid.Path == name || raid.Name == strings.TrimPrefix(name, "/dev/") {
+				targetRaid = &raid
+				break
+			}
+		}
+
+		if targetRaid == nil && !force {
+			http.Error(w, "RAID array not found", http.StatusNotFound)
+			return
+		}
+
+		// Stop the array first
+		stopOutput, err := exec.Command("mdadm", "--stop", name).CombinedOutput()
+		if err != nil && !force {
+			http.Error(w, fmt.Sprintf("Failed to stop RAID array: %s - %s", err.Error(), string(stopOutput)), http.StatusInternalServerError)
+			return
+		}
+
+		// Zero the superblocks on member devices
+		if targetRaid != nil {
+			for _, member := range targetRaid.Members {
+				exec.Command("mdadm", "--zero-superblock", member.Device).Run()
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": fmt.Sprintf("RAID array %s removed", name),
+		})
+	}
+}
+
+// AddRAIDDevice adds a device to a RAID array
+func AddRAIDDevice() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Array  string `json:"array"`
+			Device string `json:"device"`
+			Spare  bool   `json:"spare"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.Array == "" || req.Device == "" {
+			http.Error(w, "Array and device are required", http.StatusBadRequest)
+			return
+		}
+
+		array := req.Array
+		if !strings.HasPrefix(array, "/dev/") {
+			array = "/dev/" + array
+		}
+
+		device := req.Device
+		if !strings.HasPrefix(device, "/dev/") {
+			device = "/dev/" + device
+		}
+
+		// Add device to array
+		args := []string{"--add", array, device}
+		output, err := exec.Command("mdadm", args...).CombinedOutput()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to add device: %s - %s", err.Error(), string(output)), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": fmt.Sprintf("Device %s added to %s", device, array),
+		})
+	}
+}
+
+// RemoveRAIDDevice removes a device from a RAID array
+func RemoveRAIDDevice() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Array  string `json:"array"`
+			Device string `json:"device"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.Array == "" || req.Device == "" {
+			http.Error(w, "Array and device are required", http.StatusBadRequest)
+			return
+		}
+
+		array := req.Array
+		if !strings.HasPrefix(array, "/dev/") {
+			array = "/dev/" + array
+		}
+
+		device := req.Device
+		if !strings.HasPrefix(device, "/dev/") {
+			device = "/dev/" + device
+		}
+
+		// First mark the device as faulty if it isn't already
+		exec.Command("mdadm", "--fail", array, device).Run()
+
+		// Remove device from array
+		output, err := exec.Command("mdadm", "--remove", array, device).CombinedOutput()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to remove device: %s - %s", err.Error(), string(output)), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": fmt.Sprintf("Device %s removed from %s", device, array),
+		})
+	}
+}
+
+// MarkRAIDDeviceFaulty marks a device as faulty in a RAID array
+func MarkRAIDDeviceFaulty() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Array  string `json:"array"`
+			Device string `json:"device"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.Array == "" || req.Device == "" {
+			http.Error(w, "Array and device are required", http.StatusBadRequest)
+			return
+		}
+
+		array := req.Array
+		if !strings.HasPrefix(array, "/dev/") {
+			array = "/dev/" + array
+		}
+
+		device := req.Device
+		if !strings.HasPrefix(device, "/dev/") {
+			device = "/dev/" + device
+		}
+
+		output, err := exec.Command("mdadm", "--fail", array, device).CombinedOutput()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to mark device as faulty: %s - %s", err.Error(), string(output)), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": fmt.Sprintf("Device %s marked as faulty in %s", device, array),
+		})
+	}
+}
+
 // GetZFSPools returns ZFS pool information
 func GetZFSPools() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

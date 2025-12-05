@@ -1158,3 +1158,35 @@ func (s *Store) IsSetupComplete() bool {
 	// JSON store is considered legacy - always return false to force SQLite migration
 	return false
 }
+
+// ============================================================================
+// Snapshot Policy Operations (stub implementation for JSON store - use SQLite)
+// ============================================================================
+
+func (s *Store) CreateSnapshotPolicy(policy *models.SnapshotPolicy) (*models.SnapshotPolicy, error) {
+	return nil, errors.New("snapshot policies require SQLite storage")
+}
+
+func (s *Store) GetSnapshotPolicy(id string) (*models.SnapshotPolicy, error) {
+	return nil, errors.New("snapshot policies require SQLite storage")
+}
+
+func (s *Store) UpdateSnapshotPolicy(id string, updates map[string]interface{}) (*models.SnapshotPolicy, error) {
+	return nil, errors.New("snapshot policies require SQLite storage")
+}
+
+func (s *Store) DeleteSnapshotPolicy(id string) error {
+	return errors.New("snapshot policies require SQLite storage")
+}
+
+func (s *Store) ListSnapshotPolicies() []*models.SnapshotPolicy {
+	return []*models.SnapshotPolicy{}
+}
+
+func (s *Store) ListEnabledSnapshotPolicies() []*models.SnapshotPolicy {
+	return []*models.SnapshotPolicy{}
+}
+
+func (s *Store) UpdateSnapshotPolicyRun(id string, lastRun time.Time, nextRun time.Time, lastError string) error {
+	return errors.New("snapshot policies require SQLite storage")
+}

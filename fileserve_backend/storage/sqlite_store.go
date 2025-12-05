@@ -208,6 +208,27 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_share_links_token ON share_links(token);
 	CREATE INDEX IF NOT EXISTS idx_share_links_owner_id ON share_links(owner_id);
 	CREATE INDEX IF NOT EXISTS idx_share_links_expires_at ON share_links(expires_at);
+
+	-- Snapshot policies table (automated ZFS snapshots)
+	CREATE TABLE IF NOT EXISTS snapshot_policies (
+		id TEXT PRIMARY KEY,
+		name TEXT UNIQUE NOT NULL,
+		dataset TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		schedule TEXT NOT NULL,
+		retention INTEGER NOT NULL DEFAULT 7,
+		prefix TEXT NOT NULL DEFAULT 'auto',
+		recursive INTEGER NOT NULL DEFAULT 0,
+		last_run DATETIME,
+		next_run DATETIME,
+		last_error TEXT,
+		snapshot_count INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_snapshot_policies_dataset ON snapshot_policies(dataset);
+	CREATE INDEX IF NOT EXISTS idx_snapshot_policies_enabled ON snapshot_policies(enabled);
+	CREATE INDEX IF NOT EXISTS idx_snapshot_policies_next_run ON snapshot_policies(next_run);
 	`
 
 	_, err := s.db.Exec(schema)
@@ -1587,6 +1608,227 @@ func (s *SQLiteStore) IsSetupComplete() bool {
 		return false
 	}
 	return setting.Value == "true"
+}
+
+// ============================================================================
+// Snapshot Policy Operations
+// ============================================================================
+
+func (s *SQLiteStore) CreateSnapshotPolicy(policy *models.SnapshotPolicy) (*models.SnapshotPolicy, error) {
+	policy.ID = uuid.New().String()
+	policy.CreatedAt = time.Now()
+	policy.UpdatedAt = time.Now()
+
+	if policy.Prefix == "" {
+		policy.Prefix = "auto"
+	}
+	if policy.Retention == 0 {
+		policy.Retention = 7
+	}
+
+	_, err := s.db.Exec(`
+		INSERT INTO snapshot_policies (id, name, dataset, enabled, schedule, retention, prefix, recursive, last_run, next_run, last_error, snapshot_count, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		policy.ID, policy.Name, policy.Dataset, boolToInt(policy.Enabled), policy.Schedule,
+		policy.Retention, policy.Prefix, boolToInt(policy.Recursive),
+		policy.LastRun, policy.NextRun, policy.LastError, policy.SnapshotCount,
+		policy.CreatedAt, policy.UpdatedAt)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return policy, nil
+}
+
+func (s *SQLiteStore) GetSnapshotPolicy(id string) (*models.SnapshotPolicy, error) {
+	row := s.db.QueryRow(`
+		SELECT id, name, dataset, enabled, schedule, retention, prefix, recursive, last_run, next_run, last_error, snapshot_count, created_at, updated_at
+		FROM snapshot_policies WHERE id = ?`, id)
+	return s.scanSnapshotPolicy(row)
+}
+
+func (s *SQLiteStore) scanSnapshotPolicy(row *sql.Row) (*models.SnapshotPolicy, error) {
+	var policy models.SnapshotPolicy
+	var enabled, recursive int
+	var lastRun, nextRun sql.NullTime
+	var lastError sql.NullString
+
+	err := row.Scan(&policy.ID, &policy.Name, &policy.Dataset, &enabled, &policy.Schedule,
+		&policy.Retention, &policy.Prefix, &recursive, &lastRun, &nextRun, &lastError,
+		&policy.SnapshotCount, &policy.CreatedAt, &policy.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, errors.New("snapshot policy not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	policy.Enabled = enabled == 1
+	policy.Recursive = recursive == 1
+	if lastRun.Valid {
+		policy.LastRun = &lastRun.Time
+	}
+	if nextRun.Valid {
+		policy.NextRun = &nextRun.Time
+	}
+	if lastError.Valid {
+		policy.LastError = lastError.String
+	}
+
+	return &policy, nil
+}
+
+func (s *SQLiteStore) UpdateSnapshotPolicy(id string, updates map[string]interface{}) (*models.SnapshotPolicy, error) {
+	policy, err := s.GetSnapshotPolicy(id)
+	if err != nil {
+		return nil, err
+	}
+
+	if name, ok := updates["name"].(string); ok {
+		policy.Name = name
+	}
+	if dataset, ok := updates["dataset"].(string); ok {
+		policy.Dataset = dataset
+	}
+	if enabled, ok := updates["enabled"].(bool); ok {
+		policy.Enabled = enabled
+	}
+	if schedule, ok := updates["schedule"].(string); ok {
+		policy.Schedule = schedule
+	}
+	if retention, ok := updates["retention"].(float64); ok {
+		policy.Retention = int(retention)
+	}
+	if retention, ok := updates["retention"].(int); ok {
+		policy.Retention = retention
+	}
+	if prefix, ok := updates["prefix"].(string); ok {
+		policy.Prefix = prefix
+	}
+	if recursive, ok := updates["recursive"].(bool); ok {
+		policy.Recursive = recursive
+	}
+
+	policy.UpdatedAt = time.Now()
+
+	_, err = s.db.Exec(`
+		UPDATE snapshot_policies SET name = ?, dataset = ?, enabled = ?, schedule = ?, retention = ?, prefix = ?, recursive = ?, updated_at = ?
+		WHERE id = ?`,
+		policy.Name, policy.Dataset, boolToInt(policy.Enabled), policy.Schedule,
+		policy.Retention, policy.Prefix, boolToInt(policy.Recursive),
+		policy.UpdatedAt, policy.ID)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return policy, nil
+}
+
+func (s *SQLiteStore) DeleteSnapshotPolicy(id string) error {
+	result, err := s.db.Exec("DELETE FROM snapshot_policies WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return errors.New("snapshot policy not found")
+	}
+
+	return nil
+}
+
+func (s *SQLiteStore) ListSnapshotPolicies() []*models.SnapshotPolicy {
+	rows, err := s.db.Query(`
+		SELECT id, name, dataset, enabled, schedule, retention, prefix, recursive, last_run, next_run, last_error, snapshot_count, created_at, updated_at
+		FROM snapshot_policies ORDER BY name`)
+	if err != nil {
+		return []*models.SnapshotPolicy{}
+	}
+	defer rows.Close()
+
+	var policies []*models.SnapshotPolicy
+	for rows.Next() {
+		var policy models.SnapshotPolicy
+		var enabled, recursive int
+		var lastRun, nextRun sql.NullTime
+		var lastError sql.NullString
+
+		if err := rows.Scan(&policy.ID, &policy.Name, &policy.Dataset, &enabled, &policy.Schedule,
+			&policy.Retention, &policy.Prefix, &recursive, &lastRun, &nextRun, &lastError,
+			&policy.SnapshotCount, &policy.CreatedAt, &policy.UpdatedAt); err != nil {
+			continue
+		}
+
+		policy.Enabled = enabled == 1
+		policy.Recursive = recursive == 1
+		if lastRun.Valid {
+			policy.LastRun = &lastRun.Time
+		}
+		if nextRun.Valid {
+			policy.NextRun = &nextRun.Time
+		}
+		if lastError.Valid {
+			policy.LastError = lastError.String
+		}
+
+		policies = append(policies, &policy)
+	}
+
+	return policies
+}
+
+func (s *SQLiteStore) ListEnabledSnapshotPolicies() []*models.SnapshotPolicy {
+	rows, err := s.db.Query(`
+		SELECT id, name, dataset, enabled, schedule, retention, prefix, recursive, last_run, next_run, last_error, snapshot_count, created_at, updated_at
+		FROM snapshot_policies WHERE enabled = 1 ORDER BY next_run`)
+	if err != nil {
+		return []*models.SnapshotPolicy{}
+	}
+	defer rows.Close()
+
+	var policies []*models.SnapshotPolicy
+	for rows.Next() {
+		var policy models.SnapshotPolicy
+		var enabled, recursive int
+		var lastRun, nextRun sql.NullTime
+		var lastError sql.NullString
+
+		if err := rows.Scan(&policy.ID, &policy.Name, &policy.Dataset, &enabled, &policy.Schedule,
+			&policy.Retention, &policy.Prefix, &recursive, &lastRun, &nextRun, &lastError,
+			&policy.SnapshotCount, &policy.CreatedAt, &policy.UpdatedAt); err != nil {
+			continue
+		}
+
+		policy.Enabled = enabled == 1
+		policy.Recursive = recursive == 1
+		if lastRun.Valid {
+			policy.LastRun = &lastRun.Time
+		}
+		if nextRun.Valid {
+			policy.NextRun = &nextRun.Time
+		}
+		if lastError.Valid {
+			policy.LastError = lastError.String
+		}
+
+		policies = append(policies, &policy)
+	}
+
+	return policies
+}
+
+func (s *SQLiteStore) UpdateSnapshotPolicyRun(id string, lastRun time.Time, nextRun time.Time, lastError string) error {
+	_, err := s.db.Exec(`
+		UPDATE snapshot_policies SET last_run = ?, next_run = ?, last_error = ?, updated_at = ?
+		WHERE id = ?`,
+		lastRun, nextRun, lastError, time.Now(), id)
+	return err
 }
 
 // ============================================================================

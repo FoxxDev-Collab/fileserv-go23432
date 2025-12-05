@@ -879,3 +879,78 @@ func (h *ZoneFileHandler) GetZoneFolders(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(folders)
 }
+
+// ZoneStatsResponse contains recursive statistics for a zone
+type ZoneStatsResponse struct {
+	ZoneID    string `json:"zone_id"`
+	ZoneName  string `json:"zone_name"`
+	TotalSize int64  `json:"total_size"`
+	FileCount int64  `json:"file_count"`
+	DirCount  int64  `json:"dir_count"`
+}
+
+// GetZoneStats returns recursive file statistics for a zone
+func (h *ZoneFileHandler) GetZoneStats(w http.ResponseWriter, r *http.Request) {
+	userCtx := middleware.GetUserContext(r)
+	if userCtx == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	zoneID := chi.URLParam(r, "zoneId")
+	user := userFromContext(userCtx)
+
+	// Resolve zone path at root level
+	fullPath, zone, err := h.resolveZonePath(zoneID, "/", user)
+	if err != nil {
+		if os.IsPermission(err) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+		} else {
+			http.Error(w, err.Error(), http.StatusNotFound)
+		}
+		return
+	}
+
+	// Auto-provision if needed
+	if zone.AutoProvision && zone.ZoneType == models.ZoneTypePersonal {
+		os.MkdirAll(fullPath, 0755)
+	}
+
+	// Walk the directory tree and count files/sizes
+	var totalSize int64
+	var fileCount int64
+	var dirCount int64
+
+	err = filepath.Walk(fullPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			// Skip inaccessible files/directories
+			return nil
+		}
+		if info.IsDir() {
+			// Don't count the root directory itself
+			if path != fullPath {
+				dirCount++
+			}
+		} else {
+			fileCount++
+			totalSize += info.Size()
+		}
+		return nil
+	})
+
+	if err != nil {
+		http.Error(w, "Failed to calculate stats: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	resp := ZoneStatsResponse{
+		ZoneID:    zone.ID,
+		ZoneName:  zone.Name,
+		TotalSize: totalSize,
+		FileCount: fileCount,
+		DirCount:  dirCount,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}

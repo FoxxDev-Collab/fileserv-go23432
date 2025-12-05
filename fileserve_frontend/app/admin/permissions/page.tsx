@@ -524,14 +524,23 @@ export default function PermissionsPage() {
               <SelectValue placeholder="Select a group..." />
             </SelectTrigger>
             <SelectContent>
-              {systemGroups.map((group) => (
-                <SelectItem key={group.name} value={group.name}>
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    {group.name}
-                  </div>
-                </SelectItem>
-              ))}
+              {/* Filter to show only user groups (GID >= 1000) plus useful system groups */}
+              {systemGroups
+                .filter((group) =>
+                  group.gid >= 1000 ||
+                  ["wheel", "sudo", "admin", "users", "staff", "docker"].includes(group.name)
+                )
+                .map((group) => (
+                  <SelectItem key={group.name} value={group.name}>
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4" />
+                      {group.name}
+                      {group.gid < 1000 && (
+                        <span className="text-muted-foreground text-xs">(system)</span>
+                      )}
+                    </div>
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>

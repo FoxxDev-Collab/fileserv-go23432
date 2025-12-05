@@ -49,6 +49,9 @@ import {
   FolderOpen,
   MonitorSmartphone,
   FileText,
+  Globe,
+  Disc,
+  Clock,
 } from "lucide-react";
 
 export default function SharingServicesPage() {
@@ -420,6 +423,66 @@ export default function SharingServicesPage() {
                 "Unix/Linux native file sharing using NFS protocol"
               )}
             </div>
+
+            {/* Future Services - Placeholders */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  Coming Soon
+                </CardTitle>
+                <CardDescription>
+                  Additional sharing protocols planned for future releases
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {/* iSCSI Placeholder */}
+                  <div className="border rounded-lg p-4 opacity-60">
+                    <div className="flex items-start gap-3">
+                      <Disc className="h-10 w-10 text-purple-500" />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold">iSCSI Target</h3>
+                          <Badge variant="outline" className="text-xs">Planned</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Block-level storage sharing over IP networks. Present storage as virtual disks to remote servers.
+                        </p>
+                        <ul className="text-xs text-muted-foreground mt-3 space-y-1">
+                          <li>Block-level access for VMs and databases</li>
+                          <li>iSCSI initiator support for clients</li>
+                          <li>LUN management and access control</li>
+                          <li>CHAP authentication support</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* WebDAV Placeholder */}
+                  <div className="border rounded-lg p-4 opacity-60">
+                    <div className="flex items-start gap-3">
+                      <Globe className="h-10 w-10 text-green-500" />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold">WebDAV</h3>
+                          <Badge variant="outline" className="text-xs">Planned</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Web-based file access over HTTP/HTTPS. Access files through any web browser or WebDAV client.
+                        </p>
+                        <ul className="text-xs text-muted-foreground mt-3 space-y-1">
+                          <li>Browser-based file access</li>
+                          <li>HTTPS encryption support</li>
+                          <li>Integration with cloud storage apps</li>
+                          <li>Works through firewalls and proxies</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Installation Terminal Output */}
             {showInstallTerminal && installingService && (

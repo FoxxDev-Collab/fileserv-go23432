@@ -130,6 +130,9 @@ func main() {
 			r.Post("/zones/{zoneId}/bulk/delete", zoneFileHandler.BulkDeleteZoneFiles)
 			r.Post("/zones/{zoneId}/bulk/move", zoneFileHandler.BulkMoveZoneFiles)
 
+			// Zone stats (recursive file count and size)
+			r.Get("/zones/{zoneId}/stats", zoneFileHandler.GetZoneStats)
+
 			// Chunked/resumable upload routes
 			r.Route("/upload", func(r chi.Router) {
 				r.Post("/session", chunkedUploadHandler.CreateSession)
@@ -175,6 +178,12 @@ func main() {
 				r.Put("/system/users/{username}", handlers.UpdateSystemUser())
 				r.Delete("/system/users/{username}", handlers.DeleteSystemUser())
 				r.Get("/system/groups", handlers.ListSystemGroups())
+				r.Post("/system/groups", handlers.CreateSystemGroup())
+				r.Get("/system/groups/{groupname}", handlers.GetSystemGroup())
+				r.Put("/system/groups/{groupname}", handlers.UpdateSystemGroup())
+				r.Delete("/system/groups/{groupname}", handlers.DeleteSystemGroup())
+				r.Post("/system/groups/{groupname}/members", handlers.AddGroupMember())
+				r.Delete("/system/groups/{groupname}/members", handlers.RemoveGroupMember())
 
 				// File share management
 				r.Get("/shares", handlers.ListShares(store))
@@ -258,6 +267,14 @@ func main() {
 
 					// RAID Management
 					r.Get("/raid", handlers.GetRAIDArrays())
+					r.Get("/raid/status", handlers.GetRAIDStatus())
+					r.Get("/raid/devices", handlers.GetAvailableDevicesForRAID())
+					r.Post("/raid", handlers.CreateRAIDArray())
+					r.Delete("/raid", handlers.RemoveRAIDArray())
+					r.Post("/raid/stop", handlers.StopRAIDArray())
+					r.Post("/raid/add-device", handlers.AddRAIDDevice())
+					r.Post("/raid/remove-device", handlers.RemoveRAIDDevice())
+					r.Post("/raid/fail-device", handlers.MarkRAIDDeviceFaulty())
 
 					// ZFS Management
 					r.Get("/zfs/pools", handlers.GetZFSPools())
@@ -300,10 +317,8 @@ func main() {
 
 				// ZFS Management
 				r.Route("/zfs", func(r chi.Router) {
-					// Status and Installation
+					// Status (installation is left to the user/admin to do manually)
 					r.Get("/status", handlers.GetZFSStatus())
-					r.Post("/install", handlers.InstallZFS())
-					r.Get("/install/stream", handlers.InstallZFSStream())
 					r.Post("/load-module", handlers.LoadZFSModule())
 					r.Get("/disks", handlers.GetAvailableDisksForZFS())
 

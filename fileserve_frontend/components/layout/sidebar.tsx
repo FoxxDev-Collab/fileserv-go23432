@@ -8,6 +8,7 @@ import {
   Home,
   FolderOpen,
   Users,
+  UsersRound,
   Shield,
   Settings,
   LayoutDashboard,
@@ -20,6 +21,7 @@ import {
   FolderTree,
   HelpCircle,
   Share2,
+  Disc3,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 
@@ -66,6 +68,12 @@ const navSections: NavSection[] = [
         adminOnly: true,
       },
       {
+        title: "Groups",
+        href: "/admin/groups",
+        icon: UsersRound,
+        adminOnly: true,
+      },
+      {
         title: "Permissions",
         href: "/admin/permissions",
         icon: Shield,
@@ -104,6 +112,12 @@ const navSections: NavSection[] = [
         title: "ZFS",
         href: "/admin/storage/zfs",
         icon: Database,
+        adminOnly: true,
+      },
+      {
+        title: "RAID",
+        href: "/admin/storage/raid",
+        icon: Disc3,
         adminOnly: true,
       },
       {

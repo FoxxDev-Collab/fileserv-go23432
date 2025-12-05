@@ -86,7 +86,7 @@ export default function LoginPage() {
             </div>
 
             {/* Submit Button */}
-            <div className="pt-2">
+            <div className="pt-6">
               <button
                 type="submit"
                 disabled={isSubmitting}

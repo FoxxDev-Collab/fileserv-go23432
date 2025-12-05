@@ -365,7 +365,20 @@ export const zoneFilesAPI = {
       method: 'POST',
       body: JSON.stringify({ paths, destination }),
     }),
+
+  // Get zone statistics (recursive file count and total size)
+  getStats: (zoneId: string) =>
+    fetchAPI<ZoneStatsResponse>(`/zones/${zoneId}/stats`),
 };
+
+// Zone stats response type
+export interface ZoneStatsResponse {
+  zone_id: string;
+  zone_name: string;
+  total_size: number;
+  file_count: number;
+  dir_count: number;
+}
 
 // Bulk operation response types
 export interface BulkDeleteResponse {
@@ -559,7 +572,40 @@ export const systemUsersAPI = {
       method: 'DELETE',
     }),
 
+  // Group management
   listGroups: () => fetchAPI<SystemGroup[]>('/system/groups'),
+
+  getGroup: (groupname: string) =>
+    fetchAPI<SystemGroup>(`/system/groups/${encodeURIComponent(groupname)}`),
+
+  createGroup: (data: { name: string; gid?: number }) =>
+    fetchAPI<SystemGroup>('/system/groups', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateGroup: (groupname: string, data: { new_name: string }) =>
+    fetchAPI<SystemGroup>(`/system/groups/${encodeURIComponent(groupname)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteGroup: (groupname: string) =>
+    fetchAPI<void>(`/system/groups/${encodeURIComponent(groupname)}`, {
+      method: 'DELETE',
+    }),
+
+  addGroupMember: (groupname: string, username: string) =>
+    fetchAPI<SystemGroup>(`/system/groups/${encodeURIComponent(groupname)}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ username }),
+    }),
+
+  removeGroupMember: (groupname: string, username: string) =>
+    fetchAPI<SystemGroup>(`/system/groups/${encodeURIComponent(groupname)}/members`, {
+      method: 'DELETE',
+      body: JSON.stringify({ username }),
+    }),
 };
 
 // Shares API (admin only - SMB/NFS management)
@@ -1312,6 +1358,61 @@ export const storageAPI = {
   // RAID
   getRAIDArrays: () => fetchAPI<RAIDArray[]>('/storage/raid'),
 
+  getRAIDStatus: (name: string) =>
+    fetchAPI<{ name: string; detail: string }>(`/storage/raid/status?name=${encodeURIComponent(name)}`),
+
+  getAvailableDevicesForRAID: () =>
+    fetchAPI<{
+      path: string;
+      size: number;
+      size_human: string;
+      model: string;
+      type: string;
+      in_use: boolean;
+      in_raid?: string;
+    }[]>('/storage/raid/devices'),
+
+  createRAIDArray: (data: {
+    name: string;
+    level: string;
+    devices: string[];
+    spares?: string[];
+    chunk?: string;
+  }) =>
+    fetchAPI<{ message: string; device: string }>('/storage/raid', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  removeRAIDArray: (name: string, force?: boolean) =>
+    fetchAPI<{ message: string }>(`/storage/raid?name=${encodeURIComponent(name)}&force=${force || false}`, {
+      method: 'DELETE',
+    }),
+
+  stopRAIDArray: (name: string) =>
+    fetchAPI<{ message: string }>('/storage/raid/stop', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+
+  addRAIDDevice: (array: string, device: string, spare?: boolean) =>
+    fetchAPI<{ message: string }>('/storage/raid/add-device', {
+      method: 'POST',
+      body: JSON.stringify({ array, device, spare }),
+    }),
+
+  removeRAIDDevice: (array: string, device: string) =>
+    fetchAPI<{ message: string }>('/storage/raid/remove-device', {
+      method: 'POST',
+      body: JSON.stringify({ array, device }),
+    }),
+
+  markRAIDDeviceFaulty: (array: string, device: string) =>
+    fetchAPI<{ message: string }>('/storage/raid/fail-device', {
+      method: 'POST',
+      body: JSON.stringify({ array, device }),
+    }),
+
   // ZFS
   getZFSPools: () => fetchAPI<ZFSPool[]>('/storage/zfs/pools'),
 
@@ -2013,10 +2114,8 @@ export const sharingServicesAPI = {
 // =====================
 
 export const zfsAPI = {
-  // Status and Installation
+  // Status (installation is left to the user/admin to do manually)
   getStatus: () => fetchAPI<ZFSStatus>('/zfs/status'),
-
-  install: () => fetchAPI<{ message: string; output: string }>('/zfs/install', { method: 'POST' }),
 
   loadModule: () => fetchAPI<{ message: string }>('/zfs/load-module', { method: 'POST' }),
 

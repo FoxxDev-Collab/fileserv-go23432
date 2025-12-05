@@ -131,30 +131,32 @@ export function useDashboardStats() {
         };
       }
 
+      // Use the primary zone for dashboard stats
+      const primaryZone = zones[0];
+
       let fileCount = 0;
       let folderCount = 0;
       let totalSize = 0;
       let allFiles: FileInfo[] = [];
 
-      // Get files from the first zone (primary zone) for dashboard stats
-      // This avoids too many API calls on dashboard load
-      const primaryZone = zones[0];
+      // Fetch zone stats (recursive count) and recent files in parallel
       try {
-        const files = await zoneFilesAPI.list(primaryZone.zone_id, "/");
+        const [stats, files] = await Promise.all([
+          zoneFilesAPI.getStats(primaryZone.zone_id),
+          zoneFilesAPI.list(primaryZone.zone_id, "/"),
+        ]);
+
+        if (stats) {
+          fileCount = stats.file_count;
+          folderCount = stats.dir_count;
+          totalSize = stats.total_size;
+        }
 
         if (files) {
-          files.forEach((f) => {
-            if (f.is_dir) {
-              folderCount++;
-            } else {
-              fileCount++;
-              totalSize += f.size;
-            }
-          });
           allFiles = files;
         }
       } catch (error) {
-        console.error("Failed to load zone files for dashboard:", error);
+        console.error("Failed to load zone stats for dashboard:", error);
       }
 
       // Get recent files (non-folders, sorted by mod_time)

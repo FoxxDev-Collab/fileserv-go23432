@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TerminalOutput } from "@/components/terminal-output";
 import {
   Select,
   SelectContent,
@@ -99,7 +98,6 @@ export default function ZFSManagementPage() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isInstalling, setIsInstalling] = useState(false);
   const [isLoadingModule, setIsLoadingModule] = useState(false);
 
   // Dialogs
@@ -132,7 +130,6 @@ export default function ZFSManagementPage() {
   const [isCreatingPool, setIsCreatingPool] = useState(false);
   const [isCreatingDataset, setIsCreatingDataset] = useState(false);
   const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
-  const [showInstallTerminal, setShowInstallTerminal] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -187,26 +184,6 @@ export default function ZFSManagementPage() {
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    fetchZFSData();
-  };
-
-  const handleInstall = () => {
-    setIsInstalling(true);
-    setShowInstallTerminal(true);
-  };
-
-  const handleInstallComplete = useCallback((success: boolean) => {
-    setIsInstalling(false);
-    if (success) {
-      toast.success("ZFS installed successfully");
-      fetchZFSData();
-    } else {
-      toast.error("ZFS installation failed - check the output above for details");
-    }
-  }, []);
-
-  const handleCloseTerminal = () => {
-    setShowInstallTerminal(false);
     fetchZFSData();
   };
 
@@ -476,34 +453,23 @@ export default function ZFSManagementPage() {
 
                 {!status?.installed ? (
                   <div className="pt-2">
-                    {status?.can_install ? (
-                      <Button onClick={handleInstall} disabled={isInstalling} className="w-full">
-                        {isInstalling ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Installing...
-                          </>
-                        ) : (
-                          <>
-                            <Download className="h-4 w-4 mr-2" />
-                            Install {status.package_name}
-                          </>
-                        )}
-                      </Button>
-                    ) : (
-                      <Alert>
-                        <Shield className="h-4 w-4" />
-                        <AlertTitle>Installation Required</AlertTitle>
-                        <AlertDescription>
-                          Run the following command as root to install:
-                          <code className="block mt-2 p-2 bg-muted rounded text-xs">
-                            {status?.package_manager === "apt"
-                              ? `sudo apt install ${status?.package_name}`
-                              : `sudo dnf install ${status?.package_name}`}
-                          </code>
-                        </AlertDescription>
-                      </Alert>
-                    )}
+                    <Alert>
+                      <Shield className="h-4 w-4" />
+                      <AlertTitle>Manual Installation Required</AlertTitle>
+                      <AlertDescription>
+                        ZFS must be installed manually by the system administrator.
+                        Run the following command as root to install:
+                        <code className="block mt-2 p-2 bg-muted rounded text-xs">
+                          {status?.package_manager === "apt"
+                            ? `sudo apt install ${status?.package_name || "zfsutils-linux"}`
+                            : `sudo dnf install ${status?.package_name || "zfs"}`}
+                        </code>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Note: ZFS installation may require kernel headers and DKMS.
+                          Please refer to the ZFS documentation for your distribution.
+                        </p>
+                      </AlertDescription>
+                    </Alert>
                   </div>
                 ) : !status?.kernel_module ? (
                   <div className="pt-2">
@@ -524,16 +490,6 @@ export default function ZFSManagementPage() {
                 ) : null}
               </CardContent>
             </Card>
-
-            {/* Installation Terminal Output */}
-            {showInstallTerminal && (
-              <TerminalOutput
-                url="/api/zfs/install/stream"
-                title="ZFS Installation"
-                onComplete={handleInstallComplete}
-                onClose={handleCloseTerminal}
-              />
-            )}
 
             {/* Main ZFS Management - Only show if ZFS is ready */}
             {status?.installed && status?.kernel_module && (

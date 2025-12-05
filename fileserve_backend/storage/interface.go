@@ -74,6 +74,15 @@ type DataStore interface {
 	GetAllSettings() []models.Setting
 	DeleteSetting(key string) error
 	IsSetupComplete() bool
+
+	// Snapshot Policy operations
+	CreateSnapshotPolicy(policy *models.SnapshotPolicy) (*models.SnapshotPolicy, error)
+	GetSnapshotPolicy(id string) (*models.SnapshotPolicy, error)
+	UpdateSnapshotPolicy(id string, updates map[string]interface{}) (*models.SnapshotPolicy, error)
+	DeleteSnapshotPolicy(id string) error
+	ListSnapshotPolicies() []*models.SnapshotPolicy
+	ListEnabledSnapshotPolicies() []*models.SnapshotPolicy
+	UpdateSnapshotPolicyRun(id string, lastRun time.Time, nextRun time.Time, lastError string) error
 }
 
 // Ensure both Store types implement DataStore

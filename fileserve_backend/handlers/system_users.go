@@ -485,6 +485,331 @@ func getUserGroups(username string) ([]string, error) {
 	return groups, nil
 }
 
+// validGroupName checks if a group name is valid
+func validGroupName(name string) bool {
+	// Linux group name rules: similar to username
+	if len(name) == 0 || len(name) > 32 {
+		return false
+	}
+	matched, _ := regexp.MatchString(`^[a-z_][a-z0-9_-]*$`, name)
+	return matched
+}
+
+// GetSystemGroup returns a specific system group by name
+func GetSystemGroup() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		groupName := chi.URLParam(r, "groupname")
+		if groupName == "" {
+			http.Error(w, "Group name required", http.StatusBadRequest)
+			return
+		}
+
+		g, err := user.LookupGroup(groupName)
+		if err != nil {
+			http.Error(w, "Group not found", http.StatusNotFound)
+			return
+		}
+
+		gid, _ := strconv.Atoi(g.Gid)
+
+		// Get group members from /etc/group
+		members := getGroupMembers(groupName)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SystemGroup{
+			Name:    g.Name,
+			GID:     gid,
+			Members: members,
+		})
+	}
+}
+
+// CreateSystemGroup creates a new system group
+func CreateSystemGroup() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req CreateSystemGroupRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Validate group name
+		if !validGroupName(req.Name) {
+			http.Error(w, "Invalid group name. Must be lowercase, start with letter or underscore, max 32 chars", http.StatusBadRequest)
+			return
+		}
+
+		// Check if group already exists
+		if _, err := user.LookupGroup(req.Name); err == nil {
+			http.Error(w, "Group already exists", http.StatusConflict)
+			return
+		}
+
+		// Build groupadd command
+		args := []string{}
+		if req.GID > 0 {
+			args = append(args, "-g", strconv.Itoa(req.GID))
+		}
+		args = append(args, req.Name)
+
+		cmd := exec.Command("groupadd", args...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to create group: %s - %s", err.Error(), string(output)), http.StatusInternalServerError)
+			return
+		}
+
+		// Return the created group
+		g, err := user.LookupGroup(req.Name)
+		if err != nil {
+			http.Error(w, "Group created but failed to retrieve details", http.StatusInternalServerError)
+			return
+		}
+
+		gid, _ := strconv.Atoi(g.Gid)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(SystemGroup{
+			Name:    g.Name,
+			GID:     gid,
+			Members: []string{},
+		})
+	}
+}
+
+// UpdateSystemGroup updates an existing system group (rename)
+func UpdateSystemGroup() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		groupName := chi.URLParam(r, "groupname")
+		if groupName == "" {
+			http.Error(w, "Group name required", http.StatusBadRequest)
+			return
+		}
+
+		// Check group exists
+		if _, err := user.LookupGroup(groupName); err != nil {
+			http.Error(w, "Group not found", http.StatusNotFound)
+			return
+		}
+
+		// Prevent modifying critical system groups
+		criticalGroups := []string{"root", "wheel", "sudo", "adm", "bin", "daemon", "sys", "nobody"}
+		for _, cg := range criticalGroups {
+			if groupName == cg {
+				http.Error(w, "Cannot modify system group: "+groupName, http.StatusForbidden)
+				return
+			}
+		}
+
+		var req UpdateSystemGroupRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.NewName == "" {
+			http.Error(w, "New name is required", http.StatusBadRequest)
+			return
+		}
+
+		// Validate new group name
+		if !validGroupName(req.NewName) {
+			http.Error(w, "Invalid new group name. Must be lowercase, start with letter or underscore, max 32 chars", http.StatusBadRequest)
+			return
+		}
+
+		// Check if new name already exists
+		if _, err := user.LookupGroup(req.NewName); err == nil {
+			http.Error(w, "A group with the new name already exists", http.StatusConflict)
+			return
+		}
+
+		// Rename group using groupmod
+		cmd := exec.Command("groupmod", "-n", req.NewName, groupName)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to rename group: %s - %s", err.Error(), string(output)), http.StatusInternalServerError)
+			return
+		}
+
+		// Return the updated group
+		g, err := user.LookupGroup(req.NewName)
+		if err != nil {
+			http.Error(w, "Group renamed but failed to retrieve details", http.StatusInternalServerError)
+			return
+		}
+
+		gid, _ := strconv.Atoi(g.Gid)
+		members := getGroupMembers(req.NewName)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SystemGroup{
+			Name:    g.Name,
+			GID:     gid,
+			Members: members,
+		})
+	}
+}
+
+// DeleteSystemGroup deletes a system group
+func DeleteSystemGroup() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		groupName := chi.URLParam(r, "groupname")
+		if groupName == "" {
+			http.Error(w, "Group name required", http.StatusBadRequest)
+			return
+		}
+
+		// Check group exists
+		if _, err := user.LookupGroup(groupName); err != nil {
+			http.Error(w, "Group not found", http.StatusNotFound)
+			return
+		}
+
+		// Prevent deleting critical system groups
+		criticalGroups := []string{"root", "wheel", "sudo", "adm", "bin", "daemon", "sys", "nobody", "users"}
+		for _, cg := range criticalGroups {
+			if groupName == cg {
+				http.Error(w, "Cannot delete system group: "+groupName, http.StatusForbidden)
+				return
+			}
+		}
+
+		cmd := exec.Command("groupdel", groupName)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to delete group: %s - %s", err.Error(), string(output)), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// AddGroupMember adds a user to a group
+func AddGroupMember() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		groupName := chi.URLParam(r, "groupname")
+		if groupName == "" {
+			http.Error(w, "Group name required", http.StatusBadRequest)
+			return
+		}
+
+		// Check group exists
+		if _, err := user.LookupGroup(groupName); err != nil {
+			http.Error(w, "Group not found", http.StatusNotFound)
+			return
+		}
+
+		var req GroupMemberRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.Username == "" {
+			http.Error(w, "Username is required", http.StatusBadRequest)
+			return
+		}
+
+		// Check user exists
+		if _, err := user.Lookup(req.Username); err != nil {
+			http.Error(w, "User not found", http.StatusNotFound)
+			return
+		}
+
+		// Add user to group using gpasswd
+		cmd := exec.Command("gpasswd", "-a", req.Username, groupName)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to add user to group: %s - %s", err.Error(), string(output)), http.StatusInternalServerError)
+			return
+		}
+
+		// Return updated group
+		g, _ := user.LookupGroup(groupName)
+		gid, _ := strconv.Atoi(g.Gid)
+		members := getGroupMembers(groupName)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SystemGroup{
+			Name:    g.Name,
+			GID:     gid,
+			Members: members,
+		})
+	}
+}
+
+// RemoveGroupMember removes a user from a group
+func RemoveGroupMember() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		groupName := chi.URLParam(r, "groupname")
+		if groupName == "" {
+			http.Error(w, "Group name required", http.StatusBadRequest)
+			return
+		}
+
+		// Check group exists
+		if _, err := user.LookupGroup(groupName); err != nil {
+			http.Error(w, "Group not found", http.StatusNotFound)
+			return
+		}
+
+		var req GroupMemberRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.Username == "" {
+			http.Error(w, "Username is required", http.StatusBadRequest)
+			return
+		}
+
+		// Check user exists
+		if _, err := user.Lookup(req.Username); err != nil {
+			http.Error(w, "User not found", http.StatusNotFound)
+			return
+		}
+
+		// Remove user from group using gpasswd
+		cmd := exec.Command("gpasswd", "-d", req.Username, groupName)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to remove user from group: %s - %s", err.Error(), string(output)), http.StatusInternalServerError)
+			return
+		}
+
+		// Return updated group
+		g, _ := user.LookupGroup(groupName)
+		gid, _ := strconv.Atoi(g.Gid)
+		members := getGroupMembers(groupName)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SystemGroup{
+			Name:    g.Name,
+			GID:     gid,
+			Members: members,
+		})
+	}
+}
+
+// getGroupMembers returns members of a group from /etc/group
+func getGroupMembers(groupName string) []string {
+	file, err := os.Open("/etc/group")
+	if err != nil {
+		return []string{}
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		parts := strings.Split(scanner.Text(), ":")
+		if len(parts) >= 4 && parts[0] == groupName {
+			if parts[3] == "" {
+				return []string{}
+			}
+			return strings.Split(parts[3], ",")
+		}
+	}
+	return []string{}
+}
+
 // userToSystemUser converts a user.User to SystemUser
 func userToSystemUser(u *user.User) (*SystemUser, error) {
 	uid, _ := strconv.Atoi(u.Uid)
