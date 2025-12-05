@@ -1,32 +1,39 @@
 # FileServ
 
-**A self-hosted file sharing and storage management platform that puts you in control.**
-
-FileServ is built for teams and individuals who need a powerful, flexible file sharing solution without sacrificing privacy or control. Whether you're managing personal files, collaborating with a team, or serving content to the public, FileServ provides the tools you need with a clean, modern interface.
-
+![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-15-000000?style=flat&logo=next.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat&logo=tailwind-css&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat&logo=sqlite&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPLv3-blue.svg)
 
+**A self-hosted file sharing and storage platform that puts you in control.**
+
+FileServ is built for teams and individuals who want a powerful, flexible file sharing solution without giving up privacy or control. Whether you're managing personal files, working with a team, or serving content publicly, FileServ has the tools you need with a clean, modern interface.
+
+<!-- Screenshots coming soon -->
+
 ---
+
 ## Developer Background
 
 **Role:** Security Professional with development fundamentals
 
-I'm not a full-time developer, but I understand enough to architect solutions, read code, and identify security issues. This background shapes our workflow—we leverage AI for implementation while maintaining strict security oversight.
+I'm not a full-time developer, but I know enough to architect solutions, read code, and spot security issues. This background shapes my workflow—I leverage AI for implementation while keeping strict security oversight.
 
-I am a full time Information System Security Officer (ISSO level 3) with extensive background in state government and federal government IT and GRC/RMF. Currently working for military installations as contractor. I love my job and love creating tools, finding solutions to problems.
-
+I'm a full time Information System Security Officer (ISSO level 3) with extensive background in state government and federal government IT and GRC/RMF. Currently working for military installations as a contractor. I love my job and love creating tools, finding solutions to problems.
 
 ## Why FileServ?
 
-We built FileServ because existing solutions were either too restrictive, too expensive, or required handing over your data to third parties. FileServ runs entirely on your infrastructure, giving you complete ownership of your files and who can access them.
+I built FileServ because existing solutions were either too restrictive, too expensive, or required handing over your data to third parties. FileServ runs entirely on your infrastructure, so you have complete ownership of your files and who can access them.
 
 **Key Capabilities:**
 
 ### Intuitive File Management
-Upload, organize, and manage your files through a responsive web interface. Drag and drop files, create folders, search across your storage, and preview common file types—all without installing additional software.
+Upload, organize, and manage your files through a responsive web interface. Drag and drop files, create folders, search across your storage, and preview common file types—no extra software needed.
 
 ### Flexible Storage Zones
-Define storage zones that match how your team actually works. Create personal spaces for individual users, shared zones for team collaboration, and public areas for broader access. Each zone can have its own permissions, quotas, and access rules.
+Define storage zones that match how you actually work. Create personal spaces for individual users, shared zones for team collaboration, and public areas for broader access. Each zone can have its own permissions, quotas, and access rules.
 
 ### Smart Web Sharing
 Share files and folders with anyone using secure, customizable links. Set passwords, expiration dates, and download limits. Track who's viewing and downloading your content, and even allow uploads to shared folders for easy collaboration.
@@ -35,7 +42,7 @@ Share files and folders with anyone using secure, customizable links. Set passwo
 Manage SMB and NFS shares directly from the interface. FileServ integrates with your existing network infrastructure, making it easy to provide both web and traditional file access.
 
 ### Comprehensive Administration
-Monitor disk usage, manage users and groups, configure quotas, and keep tabs on system resources—all from a unified dashboard. FileServ supports LVM for flexible storage management and provides detailed visibility into your system's health
+Monitor disk usage, manage users and groups, configure quotas, and keep tabs on system resources—all from a unified dashboard. FileServ supports LVM for flexible storage management and gives you detailed visibility into your system's health.
 
 ---
 
@@ -67,7 +74,7 @@ Once running, open your browser to `http://localhost:8080`. You can log in using
 
 ## Learn More
 
-We've written detailed guides to help you get the most out of FileServ:
+I've put together some guides to help you get the most out of FileServ:
 
 | Guide | What You'll Learn |
 |-------|-------------------|
@@ -75,12 +82,13 @@ We've written detailed guides to help you get the most out of FileServ:
 | [User Guide](docs/USER_GUIDE.md) | How to use FileServ's features effectively |
 | [Admin Guide](docs/ADMIN_GUIDE.md) | Deployment, configuration, and system management |
 | [Security Report](docs/SECURITY_REPORT.md) | Security audit findings and remediation status |
-| [Dev Sec Ops](docs/ADMIN_GUIDE.md) | Developmemt with focused Security in mind |
+| [Dev Sec Ops](docs/ADMIN_GUIDE.md) | Development with focused Security in mind |
+
 ---
 
 ## Configuration
 
-FileServ uses environment variables for configuration, making it easy to customize without editing code:
+FileServ uses environment variables for configuration, so it's easy to customize without editing code:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
@@ -91,7 +99,7 @@ FileServ uses environment variables for configuration, making it easy to customi
 | `FILESERV_TLS_CERT` | - | Path to TLS certificate for HTTPS |
 | `FILESERV_TLS_KEY` | - | Path to TLS private key for HTTPS |
 
-You can set these in your shell, systemd service file, or container environment depending on how you're deploying FileServ.
+You can set these in your shell, systemd service file, or container environment depending on how you're deploying.
 
 ---
 
@@ -164,7 +172,7 @@ For the complete API documentation with request/response examples, see the [Admi
 
 ## Security Best Practices
 
-FileServ takes security seriously. We recently completed a comprehensive security audit that identified and remediated 27 vulnerabilities, including 6 critical and 12 high-severity issues. You can review the complete findings and remediation details in our [Security Report](docs/SECURITY_REPORT.md).
+Security is something I take seriously. I recently completed a comprehensive security audit that identified and fixed 27 vulnerabilities, including 6 critical and 12 high-severity issues. You can review the complete findings and remediation details in the [Security Report](docs/SECURITY_REPORT.md).
 
 When deploying FileServ, follow these essential security practices:
 
@@ -183,25 +191,25 @@ FileServ authenticates against your system's user database, so your existing use
 
 FileServ is free software licensed under the **GNU Affero General Public License v3.0 (AGPLv3)**.
 
-This means you're free to use, modify, and distribute FileServ, but if you run a modified version on a server and let others interact with it, you must share your changes. This ensures that improvements to FileServ benefit the entire community.
+This means you're free to use, modify, and distribute FileServ, but if you run a modified version on a server and let others interact with it, you need to share your changes. This ensures that improvements to FileServ benefit everyone.
 
-See the [LICENSE](LICENSE) file for the complete terms.
+See the [LICENSE](LICENSE.md) file for the complete terms.
 
 ---
 
 ## Contributing
 
-We welcome contributions from the community! Whether you're fixing a bug, adding a feature, or improving documentation, your help makes FileServ better for everyone.
+Contributions are welcome! Whether you're fixing a bug, adding a feature, or improving documentation, your help makes FileServ better for everyone.
 
 **How to contribute:**
 
 1. **Fork the repository** and create a new branch for your work
 2. **Make your changes** with clear, descriptive commits
-3. **Test thoroughly** to ensure nothing breaks
+3. **Test thoroughly** to make sure nothing breaks
 4. **Submit a pull request** with a description of what you've changed and why
 
-Before starting major work, consider opening an issue to discuss your plans with the maintainers. This helps avoid duplicate effort and ensures your contribution aligns with the project's direction.
+Before starting major work, consider opening an issue to discuss your plans. This helps avoid duplicate effort and makes sure your contribution fits with where the project is headed.
 
 ---
 
-*Built with ❤️ for people who value privacy and control over their data.*
+*Built with care for people who value privacy and control over their data.*
