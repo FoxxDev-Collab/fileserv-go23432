@@ -166,11 +166,18 @@ func UploadFile(store storage.DataStore, cfg *config.Config) http.HandlerFunc {
 		}
 		defer file.Close()
 
+		// Sanitize filename to prevent injection attacks
+		safeFilename := fileops.SanitizeFilename(header.Filename)
+		if safeFilename == "" {
+			http.Error(w, "Invalid filename", http.StatusBadRequest)
+			return
+		}
+
 		// Use filename from header if path is a directory
 		filePath := path
 		info, err := fileops.GetFileInfo(cfg.DataDir, path)
 		if err == nil && info.IsDir {
-			filePath = filepath.Join(path, header.Filename)
+			filePath = filepath.Join(path, safeFilename)
 		}
 
 		if err := fileops.SaveFile(cfg.DataDir, filePath, file); err != nil {
@@ -178,8 +185,12 @@ func UploadFile(store storage.DataStore, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		// Set file ownership
-		fullPath := filepath.Join(cfg.DataDir, filePath)
+		// Set file ownership - use ValidatePath to get the safe full path
+		fullPath, err := fileops.ValidatePath(cfg.DataDir, filePath)
+		if err != nil {
+			http.Error(w, "Invalid path", http.StatusInternalServerError)
+			return
+		}
 		if userCtx.Username != "" {
 			if u, err := osuser.Lookup(userCtx.Username); err == nil {
 				uid, _ := strconv.Atoi(u.Uid)

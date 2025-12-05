@@ -81,6 +81,101 @@ type ZFSSnapshot struct {
 	Creation   string `json:"creation"`
 }
 
+// ========================================================================
+// ZFS Input Validation - Security hardening against command injection
+// ========================================================================
+
+// zfsDatasetNameRegex validates ZFS dataset/pool names
+// ZFS names: alphanumeric, underscore, hyphen, period, colon (for snapshots)
+// Must start with alphanumeric
+var zfsDatasetNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.\-:/]*$`)
+
+// zfsAllowedProperties is a whitelist of safe ZFS properties that can be set
+var zfsAllowedProperties = map[string]bool{
+	// Common dataset properties
+	"compression":    true,
+	"atime":          true,
+	"relatime":       true,
+	"quota":          true,
+	"refquota":       true,
+	"reservation":    true,
+	"refreservation": true,
+	"recordsize":     true,
+	"mountpoint":     true,
+	"readonly":       true,
+	"sync":           true,
+	"dedup":          true,
+	"checksum":       true,
+	"copies":         true,
+	"primarycache":   true,
+	"secondarycache": true,
+	"logbias":        true,
+	"snapdir":        true,
+	"aclinherit":     true,
+	"acltype":        true,
+	"xattr":          true,
+	"dnodesize":      true,
+	"special_small_blocks": true,
+	"canmount":       true,
+	// Limit properties - exclude dangerous ones like 'exec', 'setuid', 'devices'
+}
+
+// zfsPropertyValueRegex validates property values - no shell metacharacters
+var zfsPropertyValueRegex = regexp.MustCompile(`^[a-zA-Z0-9_.\-/:=]+$`)
+
+// validateZFSDatasetName checks if a ZFS dataset/pool name is valid and safe
+func validateZFSDatasetName(name string) error {
+	if name == "" {
+		return fmt.Errorf("dataset name cannot be empty")
+	}
+	if len(name) > 255 {
+		return fmt.Errorf("dataset name too long (max 255 characters)")
+	}
+	if !zfsDatasetNameRegex.MatchString(name) {
+		return fmt.Errorf("invalid dataset name: must start with alphanumeric and contain only alphanumeric, underscore, hyphen, period, colon, or slash")
+	}
+	// Check for path traversal attempts
+	if strings.Contains(name, "..") {
+		return fmt.Errorf("invalid dataset name: contains path traversal sequence")
+	}
+	return nil
+}
+
+// validateZFSProperty checks if a property name is in the whitelist
+func validateZFSProperty(property string) error {
+	if property == "" {
+		return fmt.Errorf("property name cannot be empty")
+	}
+	if !zfsAllowedProperties[property] {
+		return fmt.Errorf("property '%s' is not allowed. Allowed properties: compression, quota, mountpoint, readonly, sync, atime, recordsize, etc.", property)
+	}
+	return nil
+}
+
+// validateZFSPropertyValue checks if a property value is safe
+func validateZFSPropertyValue(value string) error {
+	// Allow empty values (some properties can be unset)
+	if value == "" {
+		return nil
+	}
+	if len(value) > 1024 {
+		return fmt.Errorf("property value too long (max 1024 characters)")
+	}
+	// For mountpoints, allow full paths
+	if strings.HasPrefix(value, "/") {
+		// Validate as a path - no shell metacharacters
+		if strings.ContainsAny(value, ";|&$`\"'\\<>(){}[]!#*?") {
+			return fmt.Errorf("invalid property value: contains shell metacharacters")
+		}
+		return nil
+	}
+	// For other values, use strict regex
+	if !zfsPropertyValueRegex.MatchString(value) && value != "on" && value != "off" && value != "none" && value != "inherit" {
+		return fmt.Errorf("invalid property value: contains invalid characters")
+	}
+	return nil
+}
+
 // GetZFSStatus returns ZFS installation and status
 func GetZFSStatus() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -578,12 +673,32 @@ func SetZFSProperty() http.HandlerFunc {
 			return
 		}
 
+		// Validate dataset name to prevent command injection
+		if err := validateZFSDatasetName(req.Dataset); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate property against whitelist
+		if err := validateZFSProperty(req.Property); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate property value
+		if err := validateZFSPropertyValue(req.Value); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Use separate arguments to prevent injection (no string concatenation)
 		cmd := exec.Command("sudo", "zfs", "set", fmt.Sprintf("%s=%s", req.Property, req.Value), req.Dataset)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to set property: %s - %s", err.Error(), string(output)), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("Failed to set property: %s", err.Error()), http.StatusInternalServerError)
 			return
 		}
+		_ = output // Suppress unused variable warning
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
@@ -600,6 +715,11 @@ func ListZFSSnapshots() http.HandlerFunc {
 
 		args := []string{"list", "-H", "-p", "-t", "snapshot", "-o", "name,used,referenced,creation"}
 		if datasetFilter != "" {
+			// Validate dataset filter to prevent command injection
+			if err := validateZFSDatasetName(datasetFilter); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 			args = append(args, "-r", datasetFilter)
 		}
 

@@ -141,7 +141,7 @@ func (m *ChunkedUploadManager) CreateSession(filename string, totalSize int64, t
 	return session, nil
 }
 
-// GetSession retrieves an upload session
+// GetSession retrieves an upload session (without owner verification)
 func (m *ChunkedUploadManager) GetSession(sessionID string) (*UploadSession, error) {
 	m.mu.RLock()
 	session, exists := m.sessions[sessionID]
@@ -159,8 +159,53 @@ func (m *ChunkedUploadManager) GetSession(sessionID string) (*UploadSession, err
 	return session, nil
 }
 
-// UploadChunk uploads a single chunk
+// GetSessionWithOwner retrieves an upload session with owner verification
+func (m *ChunkedUploadManager) GetSessionWithOwner(sessionID string, ownerID string) (*UploadSession, error) {
+	session, err := m.GetSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify ownership
+	if session.OwnerID != ownerID {
+		return nil, fmt.Errorf("access denied: you are not the owner of this upload session")
+	}
+
+	return session, nil
+}
+
+// VerifySessionOwner checks if the given ownerID owns the session
+func (m *ChunkedUploadManager) VerifySessionOwner(sessionID string, ownerID string) bool {
+	session, err := m.GetSession(sessionID)
+	if err != nil {
+		return false
+	}
+	return session.OwnerID == ownerID
+}
+
+// UploadChunk uploads a single chunk (without owner verification - use UploadChunkWithOwner for secure uploads)
+// Deprecated: Use UploadChunkWithOwner instead to prevent session hijacking
 func (m *ChunkedUploadManager) UploadChunk(sessionID string, chunkIndex int, data io.Reader) error {
+	return m.uploadChunkInternal(sessionID, chunkIndex, data)
+}
+
+// UploadChunkWithOwner uploads a single chunk with owner verification to prevent session hijacking
+func (m *ChunkedUploadManager) UploadChunkWithOwner(sessionID string, chunkIndex int, data io.Reader, ownerID string) error {
+	session, err := m.GetSession(sessionID)
+	if err != nil {
+		return err
+	}
+
+	// Verify ownership to prevent session hijacking
+	if session.OwnerID != ownerID {
+		return fmt.Errorf("access denied: you are not the owner of this upload session")
+	}
+
+	return m.uploadChunkInternal(sessionID, chunkIndex, data)
+}
+
+// uploadChunkInternal is the internal implementation for chunk upload
+func (m *ChunkedUploadManager) uploadChunkInternal(sessionID string, chunkIndex int, data io.Reader) error {
 	session, err := m.GetSession(sessionID)
 	if err != nil {
 		return err
@@ -251,8 +296,29 @@ func (m *ChunkedUploadManager) IsComplete(sessionID string) (bool, error) {
 	return len(session.UploadedChunks) == session.TotalChunks, nil
 }
 
-// Finalize assembles all chunks into the final file
+// Finalize assembles all chunks into the final file (without owner verification)
+// Deprecated: Use FinalizeWithOwner instead to prevent unauthorized finalization
 func (m *ChunkedUploadManager) Finalize(sessionID string) (string, error) {
+	return m.finalizeInternal(sessionID)
+}
+
+// FinalizeWithOwner assembles all chunks into the final file with owner verification
+func (m *ChunkedUploadManager) FinalizeWithOwner(sessionID string, ownerID string) (string, error) {
+	session, err := m.GetSession(sessionID)
+	if err != nil {
+		return "", err
+	}
+
+	// Verify ownership to prevent unauthorized finalization
+	if session.OwnerID != ownerID {
+		return "", fmt.Errorf("access denied: you are not the owner of this upload session")
+	}
+
+	return m.finalizeInternal(sessionID)
+}
+
+// finalizeInternal is the internal implementation for finalization
+func (m *ChunkedUploadManager) finalizeInternal(sessionID string) (string, error) {
 	session, err := m.GetSession(sessionID)
 	if err != nil {
 		return "", err

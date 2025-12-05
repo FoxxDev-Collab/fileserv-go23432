@@ -16,6 +16,127 @@ import (
 	"fileserv/models"
 )
 
+// Allowed mount options whitelist for security
+var allowedMountOptions = map[string]bool{
+	"defaults": true, "ro": true, "rw": true, "noexec": true, "exec": true,
+	"nosuid": true, "suid": true, "nodev": true, "dev": true, "sync": true,
+	"async": true, "noatime": true, "atime": true, "nodiratime": true,
+	"relatime": true, "strictatime": true, "nofail": true, "auto": true,
+	"noauto": true, "user": true, "nouser": true, "users": true,
+	"discard": true, "compress": true, "compress=lzo": true, "compress=zlib": true,
+	"compress=zstd": true, "subvol": true, "degraded": true, "space_cache": true,
+	"space_cache=v2": true, "ssd": true, "nossd": true,
+}
+
+// Allowed filesystem types whitelist
+var allowedFSTypes = map[string]bool{
+	"ext4": true, "ext3": true, "ext2": true, "xfs": true, "btrfs": true,
+	"zfs": true, "ntfs": true, "vfat": true, "exfat": true, "tmpfs": true,
+	"nfs": true, "nfs4": true, "cifs": true, "iso9660": true,
+}
+
+// Device path regex - must be /dev/xxx or UUID=xxx or LABEL=xxx
+var devicePathRegex = regexp.MustCompile(`^(/dev/[a-zA-Z0-9/_-]+|UUID=[a-fA-F0-9-]+|LABEL=[a-zA-Z0-9_.-]+)$`)
+
+// Mount point path regex - must be absolute path with safe characters
+var mountPointRegex = regexp.MustCompile(`^/[a-zA-Z0-9/_.-]*$`)
+
+// validateMountOptions validates and filters mount options against whitelist
+func validateMountOptions(options string) (string, error) {
+	if options == "" {
+		return "defaults", nil
+	}
+
+	parts := strings.Split(options, ",")
+	var validOptions []string
+
+	for _, opt := range parts {
+		opt = strings.TrimSpace(opt)
+		if opt == "" {
+			continue
+		}
+
+		// Check for subvol=xxx pattern (btrfs)
+		if strings.HasPrefix(opt, "subvol=") {
+			subvol := strings.TrimPrefix(opt, "subvol=")
+			// Validate subvol name
+			if matched, _ := regexp.MatchString(`^[a-zA-Z0-9/_.-]+$`, subvol); matched {
+				validOptions = append(validOptions, opt)
+				continue
+			} else {
+				return "", fmt.Errorf("invalid subvol name: %s", subvol)
+			}
+		}
+
+		// Check for uid/gid options
+		if strings.HasPrefix(opt, "uid=") || strings.HasPrefix(opt, "gid=") {
+			val := strings.Split(opt, "=")[1]
+			if matched, _ := regexp.MatchString(`^\d+$`, val); matched {
+				validOptions = append(validOptions, opt)
+				continue
+			} else {
+				return "", fmt.Errorf("invalid uid/gid value: %s", val)
+			}
+		}
+
+		// Check against whitelist
+		if !allowedMountOptions[opt] {
+			return "", fmt.Errorf("mount option not allowed: %s", opt)
+		}
+		validOptions = append(validOptions, opt)
+	}
+
+	if len(validOptions) == 0 {
+		return "defaults", nil
+	}
+	return strings.Join(validOptions, ","), nil
+}
+
+// validateFSType validates filesystem type against whitelist
+func validateFSType(fstype string) error {
+	if fstype == "" {
+		return nil // Empty is allowed, mount will auto-detect
+	}
+	if !allowedFSTypes[fstype] {
+		return fmt.Errorf("filesystem type not allowed: %s", fstype)
+	}
+	return nil
+}
+
+// validateDevicePath validates device path format
+func validateDevicePath(device string) error {
+	if device == "" {
+		return fmt.Errorf("device path is required")
+	}
+	if !devicePathRegex.MatchString(device) {
+		return fmt.Errorf("invalid device path format: must be /dev/xxx, UUID=xxx, or LABEL=xxx")
+	}
+	// Additional check to prevent path traversal
+	if strings.Contains(device, "..") {
+		return fmt.Errorf("path traversal not allowed in device path")
+	}
+	return nil
+}
+
+// validateMountPoint validates mount point path
+func validateMountPoint(mountPoint string) error {
+	if mountPoint == "" {
+		return fmt.Errorf("mount point is required")
+	}
+	if !mountPointRegex.MatchString(mountPoint) {
+		return fmt.Errorf("invalid mount point format: must be absolute path with safe characters")
+	}
+	// Check for path traversal
+	if strings.Contains(mountPoint, "..") {
+		return fmt.Errorf("path traversal not allowed in mount point")
+	}
+	// Must be absolute path
+	if !filepath.IsAbs(mountPoint) {
+		return fmt.Errorf("mount point must be absolute path")
+	}
+	return nil
+}
+
 // Helper function to format bytes to human readable
 func formatBytes(bytes uint64) string {
 	const unit = 1024
