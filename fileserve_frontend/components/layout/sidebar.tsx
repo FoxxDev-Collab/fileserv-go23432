@@ -22,6 +22,8 @@ import {
   HelpCircle,
   Share2,
   Disc3,
+  Camera,
+  Bell,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 
@@ -115,9 +117,21 @@ const navSections: NavSection[] = [
         adminOnly: true,
       },
       {
+        title: "Snapshots",
+        href: "/admin/storage/snapshots",
+        icon: Camera,
+        adminOnly: true,
+      },
+      {
         title: "RAID",
         href: "/admin/storage/raid",
         icon: Disc3,
+        adminOnly: true,
+      },
+      {
+        title: "Alerts",
+        href: "/admin/storage/alerts",
+        icon: Bell,
         adminOnly: true,
       },
       {

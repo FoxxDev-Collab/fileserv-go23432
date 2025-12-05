@@ -60,6 +60,12 @@ func main() {
 	setupHandler := handlers.NewSetupHandler(store)
 	settingsHandler := handlers.NewSettingsHandler(store)
 
+	// Initialize snapshot scheduler
+	snapshotScheduler := handlers.NewSnapshotScheduler(store)
+	snapshotScheduler.Start()
+	defer snapshotScheduler.Stop()
+	snapshotPolicyHandler := handlers.NewSnapshotPolicyHandler(store, snapshotScheduler)
+
 	// Get JWT secret from database if available, otherwise use config or generate one
 	jwtSecret := handlers.GetJWTSecretFromStore(store)
 	if jwtSecret == "" {
@@ -343,6 +349,16 @@ func main() {
 					r.Post("/snapshots", handlers.CreateZFSSnapshot())
 					r.Delete("/snapshots", handlers.DeleteZFSSnapshot())
 					r.Post("/snapshots/rollback", handlers.RollbackZFSSnapshot())
+
+					// Snapshot Scheduling
+					r.Get("/snapshot-policies", snapshotPolicyHandler.ListPolicies)
+					r.Post("/snapshot-policies", snapshotPolicyHandler.CreatePolicy)
+					r.Get("/snapshot-policies/status", snapshotPolicyHandler.GetSchedulerStatus)
+					r.Get("/snapshot-policies/{id}", snapshotPolicyHandler.GetPolicy)
+					r.Put("/snapshot-policies/{id}", snapshotPolicyHandler.UpdatePolicy)
+					r.Delete("/snapshot-policies/{id}", snapshotPolicyHandler.DeletePolicy)
+					r.Post("/snapshot-policies/{id}/run", snapshotPolicyHandler.RunPolicy)
+					r.Get("/snapshot-policies/{id}/snapshots", snapshotPolicyHandler.GetPolicySnapshots)
 				})
 
 				// System Management

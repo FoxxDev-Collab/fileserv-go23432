@@ -964,6 +964,31 @@ export interface ZFSSnapshot {
   creation: string;
 }
 
+// Snapshot Policy Types
+export interface SnapshotPolicy {
+  id: string;
+  name: string;
+  dataset: string;
+  enabled: boolean;
+  schedule: 'hourly' | 'daily' | 'weekly' | 'monthly';
+  retention: number;
+  prefix: string;
+  recursive: boolean;
+  last_run?: string;
+  next_run?: string;
+  last_error?: string;
+  snapshot_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SnapshotPolicySnapshot {
+  name: string;
+  used: string;
+  referenced: string;
+  creation: string;
+}
+
 export interface ZFSStatus {
   installed: boolean;
   kernel_module: boolean;
@@ -2220,4 +2245,47 @@ export const zfsAPI = {
       method: 'POST',
       body: JSON.stringify({ name, destroy_recent: destroyRecent, destroy_clones: destroyClones, force }),
     }),
+
+  // Snapshot Policies
+  listSnapshotPolicies: () =>
+    fetchAPI<SnapshotPolicy[]>('/zfs/snapshot-policies'),
+
+  getSnapshotPolicy: (id: string) =>
+    fetchAPI<SnapshotPolicy>(`/zfs/snapshot-policies/${id}`),
+
+  createSnapshotPolicy: (data: {
+    name: string;
+    dataset: string;
+    schedule: string;
+    retention?: number;
+    prefix?: string;
+    recursive?: boolean;
+    enabled?: boolean;
+  }) =>
+    fetchAPI<SnapshotPolicy>('/zfs/snapshot-policies', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateSnapshotPolicy: (id: string, data: Partial<SnapshotPolicy>) =>
+    fetchAPI<SnapshotPolicy>(`/zfs/snapshot-policies/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteSnapshotPolicy: (id: string) =>
+    fetchAPI<{ message: string }>(`/zfs/snapshot-policies/${id}`, {
+      method: 'DELETE',
+    }),
+
+  runSnapshotPolicy: (id: string) =>
+    fetchAPI<{ message: string; policy: SnapshotPolicy }>(`/zfs/snapshot-policies/${id}/run`, {
+      method: 'POST',
+    }),
+
+  getSnapshotPolicySnapshots: (id: string) =>
+    fetchAPI<SnapshotPolicySnapshot[]>(`/zfs/snapshot-policies/${id}/snapshots`),
+
+  getSchedulerStatus: () =>
+    fetchAPI<{ running: boolean; total_policies: number; enabled_policies: number }>('/zfs/snapshot-policies/status'),
 };
