@@ -1,15 +1,25 @@
 # FileServ
 
-![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-15-000000?style=flat&logo=next.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat&logo=tailwind-css&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat&logo=sqlite&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPLv3-blue.svg)
+![Rocky Linux](https://img.shields.io/badge/Rocky_Linux-10CE59?style=flat&logo=rockylinux&logoColor=white)
+![RHEL](https://img.shields.io/badge/RHEL-EE0000?style=flat&logo=redhat&logoColor=white)
 
-**A self-hosted file sharing and storage platform that puts you in control.**
+**A self-hosted file sharing and storage platform for Enterprise Linux — think TrueNAS for Rocky/RHEL.**
 
-FileServ is built for teams and individuals who want a powerful, flexible file sharing solution without giving up privacy or control. Whether you're managing personal files, working with a team, or serving content publicly, FileServ has the tools you need with a clean, modern interface.
+There's plenty of NAS solutions out there for Debian-based systems, but not much love for Enterprise Linux. FileServ fills that gap. Take a lightweight Rocky or RHEL server and turn it into a full-featured NAS with a modern web interface.
+
+Built for teams and individuals who want powerful file sharing without giving up privacy or control. Whether you're managing personal files, working with a team, or serving content publicly, FileServ has the tools you need.
+
+**Tested on:**
+- Rocky Linux 10 Minimal
+- Rocky Linux 9.6 Minimal
+- RHEL 10
+- RHEL 9.6
 
 <!-- Screenshots coming soon -->
 
