@@ -103,10 +103,10 @@ export default function QuotasPage() {
         storageAPI.getUserStorageUsage(),
         storageAPI.getMounts(),
       ]);
-      setQuotas(quotaData);
-      setQuotaStatus(statusData);
-      setUserStorage(storageData);
-      setMounts(mountData.filter(m =>
+      setQuotas(quotaData || []);
+      setQuotaStatus(statusData || []);
+      setUserStorage(storageData || []);
+      setMounts((mountData || []).filter(m =>
         !m.mount_path.startsWith('/sys') &&
         !m.mount_path.startsWith('/proc') &&
         !m.mount_path.startsWith('/run') &&
